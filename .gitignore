@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+client/node_modules/
+server/node_modules/
+
+# Environment — NEVER commit real secrets
+.env
+.env.local
+.env.*.local
+
+# Build outputs
+client/dist/
+server/dist/
+
+# SQLite dev database
+*.sqlite
+*.sqlite3
+*.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Render
+.render-buildinfo.json
