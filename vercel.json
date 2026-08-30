@@ -1,0 +1,16 @@
+{
+  "version": 2,
+  "buildCommand": "npm install --prefix client && npm run build --prefix client && npm install --prefix server",
+  "outputDirectory": "client/dist",
+  "functions": {
+    "api/index.ts": {
+      "maxDuration": 30,
+      "includeFiles": "server/**"
+    }
+  },
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "/api/index" },
+    { "source": "/auth/:path*", "destination": "/api/index" },
+    { "source": "/(.*)", "destination": "/$1" }
+  ]
+}
