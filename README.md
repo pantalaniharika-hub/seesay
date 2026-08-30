@@ -88,45 +88,23 @@ Open [http://localhost:3001](http://localhost:3001)
 
 ---
 
-## 🌐 Deployment on Render
+## 🌐 Deployment on Vercel
 
-### Automated (render.yaml)
+Production Live URL: **[https://seesay-dun.vercel.app](https://seesay-dun.vercel.app)**
 
-This repo includes a `render.yaml` file. On [render.com](https://render.com):
-1. Connect your GitHub repo
-2. Render auto-detects the `render.yaml` and creates:
-   - A **Web Service** (Node.js)
-   - A **PostgreSQL database** (free tier)
-3. Set these environment variables in the Render dashboard:
-   - `ANTHROPIC_API_KEY`
-   - `GOOGLE_CLIENT_ID`
-   - `GOOGLE_CLIENT_SECRET`
-   - `SESSION_SECRET` (Render can auto-generate)
-4. After first deploy, run the migration: Render Dashboard → your service → Shell → `npm run db:migrate`
+### Deployment Architecture
+- **Platform**: Vercel Serverless (Monorepo)
+- **Routing**: `vercel.json` routes `/api/(.*)` and `/auth/(.*)` directly to Express serverless functions, and serves Vite frontend static assets for SPA routing.
+- **AI Vision**: Google Gemini 3.5 Flash prioritized with Anthropic Claude fallbacks.
+- **Authentication**: Google OAuth 2.0 (`/auth/google`) with automatic redirect to `/auth/google/callback`.
 
-### Manual Settings (if not using render.yaml)
-
-| Setting | Value |
-|---|---|
-| **Build Command** | `npm install && npm run build` |
-| **Start Command** | `npm start` |
-| **Node version** | 18+ |
-
-**Environment variables to add:**
-- `ANTHROPIC_API_KEY`
-- `GOOGLE_CLIENT_ID`
-- `GOOGLE_CLIENT_SECRET`
-- `SESSION_SECRET`
-- `DATABASE_URL` (from Render Postgres → Internal Database URL)
-- `APP_URL` = `https://your-slug.onrender.com`
-- `NODE_ENV` = `production`
-
-### After deploy
-
-1. Note your Render URL: `https://your-slug.onrender.com`
-2. Go back to Google Cloud Console → your OAuth credential
-3. Add to **Authorized redirect URIs**: `https://your-slug.onrender.com/auth/google/callback`
-4. Save — OAuth will now work in production
+### Environment Variables
+- `GEMINI_API_KEY`: Google Gemini Vision AI API Key
+- `ANTHROPIC_API_KEY`: Anthropic Claude API Key (optional fallback)
+- `GOOGLE_CLIENT_ID`: Google OAuth Client ID
+- `GOOGLE_CLIENT_SECRET`: Google OAuth Client Secret
+- `APP_URL`: `https://seesay-dun.vercel.app`
+- `SESSION_SECRET`: Session encryption key
 
 ---
 
@@ -167,7 +145,8 @@ buildtoship/
 │       ├── middleware/  auth.ts
 │       ├── routes/  api.ts (describe, ask, stats, history)
 │       └── index.ts entry point
-├── render.yaml      # Render IaC
+├── vercel.json      # Vercel deployment configuration
+├── api/             # Vercel serverless function entry
 └── .env.example     # Environment template
 ```
 
