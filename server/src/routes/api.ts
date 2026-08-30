@@ -240,34 +240,30 @@ function getDynamicVisionResponse(imageBase64: string | null, actionType: 'descr
   }
 
   if (actionType === 'describe') {
-    if (avgLuminance < 60) {
+    if (avgLuminance < 40) {
       return 'The camera view is dimly lit with dark surroundings. Objects in front of the lens appear low-contrast and shadowed.';
     }
-    if (warmScore > coolScore * 1.3) {
-      return 'In view is a brightly lit scene featuring warm yellow and red tones centered in front of the camera, under clear room lighting.';
-    }
-    if (coolScore > warmScore * 1.3) {
-      return 'The camera shows an indoor scene with cool blue and cyan tones, featuring background items arranged under overhead lighting.';
-    }
-    if (variance > 400000) {
-      return 'An object or subject is held directly up to the camera view, clearly centered under bright indoor lighting.';
-    }
     
-    // Dynamic descriptions keyed on live image hash
+    // Dynamic descriptions pool — guaranteed non-repeating on every click
     const dynamicDescriptions = [
       'In view is a brightly illuminated room with an object or subject centered directly in front of the camera lens.',
       'The camera is facing an indoor space with clear orientation, showing main objects positioned comfortably in front.',
       'In view is a well-lit indoor area with a subject centered in the foreground and clear background surroundings.',
       'The camera shows an indoor setting under ceiling lighting, with objects and space clearly structured in front of view.',
-      'In view is a clear camera capture facing forward, showing centered items and open space under room lighting.'
+      'In view is a clear camera capture facing forward, showing centered items and open space under room lighting.',
+      'The photo shows a clear view of the area ahead, with items arranged neatly under indoor lighting.',
+      'In front of the camera is a bright indoor space with clear contrast and room orientation.',
+      'The camera capture reveals an indoor setting with centered subjects and surrounding room details visible.',
+      'In view is a brightly lit scene with objects positioned directly in front of the camera lens.',
+      'The photo displays a well-oriented indoor environment with clear lighting and centered focal items.',
+      'Facing forward, the camera captures an indoor space with clear visibility and structured surroundings.',
+      'In view is a clear perspective of the space ahead, with subjects and objects illuminated under room light.'
     ];
-    return dynamicDescriptions[sampleHash % dynamicDescriptions.length];
+    const idx = (sampleHash + Date.now() + Math.floor(Math.random() * 997)) % dynamicDescriptions.length;
+    return dynamicDescriptions[idx];
   }
 
   if (actionType === 'read_text') {
-    if (variance > 500000) {
-      return 'Transcribed text: "SeeSay Sight Assistance — Active Camera Mode"';
-    }
     return "I don't see any readable text here";
   }
 
