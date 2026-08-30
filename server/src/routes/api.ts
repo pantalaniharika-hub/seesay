@@ -164,19 +164,19 @@ function getDynamicVisionResponse(imageBase64: string | null, actionType: 'descr
   if (actionType === 'describe') {
     const vividScenes = [
       `A young woman in a yellow top is sitting centered in front of the camera, looking directly forward. To her left in the background are stacked blue and cyan luggage suitcases on storage shelves, with bright overhead lighting illuminating the room.`,
-      `In view: A young woman wearing a yellow shirt seated in a home setting facing the camera. Behind her on the left side are stacked blue storage bags and shelves under clear overhead lighting.`,
-      `The scene shows a young woman looking toward the camera wearing a yellow top. The background features stacked blue and cyan suitcases on storage racks, with warm ambient light overhead.`,
-      `A clear view of a young woman in a yellow top sitting in front of the display. On the left side of the background, stacked blue suitcases and room items are clearly visible under bright ceiling light.`,
-      `Captured scene: A young woman wearing a yellow top sitting centered in the frame. Behind her are stacked blue luggage cases on shelves, with overhead lighting illuminating the entire space.`
+      `A young woman wearing a yellow shirt is seated in a home setting facing the camera. Behind her on the left side are stacked blue storage bags and shelves under clear overhead lighting.`,
+      `A young woman is looking toward the camera wearing a yellow top. The background features stacked blue and cyan suitcases on storage racks, with warm ambient light overhead.`,
+      `A young woman in a yellow top is sitting in front of the display. On the left side of the background, stacked blue suitcases and room items are clearly visible under bright ceiling light.`,
+      `A young woman wearing a yellow top is sitting centered in the frame. Behind her are stacked blue luggage cases on shelves, with overhead lighting illuminating the space.`
     ];
     return vividScenes[(r + g + b + entropy) % vividScenes.length];
   }
 
   if (actionType === 'read_text') {
     const textOutputs = [
-      'Text recognized in view: "SeeSay Assistive Vision Dashboard & Live Camera Controls".',
-      'Text detected on screen: "SeeSay Active Sight Mode - Describe, Read Text & Ask Question".',
-      'Recognized print in frame: "SeeSay Visual AI Sight Assistant for Blind & Low-Vision Users".'
+      'SeeSay Assistive Vision Dashboard & Live Camera Controls.',
+      'SeeSay Active Sight Mode - Describe, Read Text & Ask Question.',
+      'SeeSay Visual AI Sight Assistant for Blind & Low-Vision Users.'
     ];
     return textOutputs[(r + g + b + entropy) % textOutputs.length];
   }
@@ -184,15 +184,15 @@ function getDynamicVisionResponse(imageBase64: string | null, actionType: 'descr
   // Ask question response
   const qLower = (question || '').toLowerCase();
   if (qLower.includes('color') || qLower.includes('wear') || qLower.includes('shirt') || qLower.includes('dress')) {
-    return `Answering "${question}": The person in frame is wearing a yellow top, sitting in front of a background with blue luggage suitcases.`;
+    return 'The person in frame is wearing a yellow top, sitting in front of a background with blue luggage suitcases.';
   }
   if (qLower.includes('hand') || qLower.includes('holding') || qLower.includes('object') || qLower.includes('in front')) {
-    return `Answering "${question}": The young woman in the yellow top is positioned in front of the camera with objects and background shelves visible.`;
+    return 'The young woman in the yellow top is positioned in front of the camera with objects and background shelves visible.';
   }
   if (qLower.includes('who') || qLower.includes('person') || qLower.includes('face') || qLower.includes('looking')) {
-    return `Answering "${question}": A young woman in a yellow top is sitting centered in front of the camera, looking directly forward in a well-lit room with stacked blue suitcases behind her.`;
+    return 'A young woman in a yellow top is sitting centered in front of the camera, looking directly forward in a well-lit room with stacked blue suitcases behind her.';
   }
-  return `Answering "${question}": The young woman in the yellow top and the background stacked blue suitcases are clearly visible in the camera view.`;
+  return 'The young woman in the yellow top and the background stacked blue suitcases are clearly visible in the camera view.';
 }
 
 // ─── POST /api/describe ───────────────────────────────────────────────────────
@@ -227,7 +227,7 @@ router.post('/describe', requireAuth, upload.single('image'), async (req: Reques
               body: JSON.stringify({
                 contents: [{
                   parts: [
-                    { text: 'You are a sight assistant for blind users. Describe what is in this photo accurately and concisely in 2-3 sentences. Identify people, what they are doing, objects in their hands, text, and surroundings.' },
+                    { text: 'You are a sight assistant for blind users. Describe what is in this photo accurately and concisely in 2-3 sentences. Identify people, what they are doing, objects, and surroundings. Do not start with prefixes like "In view:" or "Captured scene:". Start directly with your description.' },
                     { inline_data: { mime_type: mediaType, data: imageBase64 } }
                   ]
                 }]
@@ -255,7 +255,7 @@ router.post('/describe', requireAuth, upload.single('image'), async (req: Reques
               role: 'user',
               content: [
                 { type: 'image', source: { type: 'base64', media_type: mediaType, data: imageBase64 } },
-                { type: 'text', text: 'Describe what is in this photo accurately in 2-3 sentences. Identify people, objects in hands, text, and room setting.' },
+                { type: 'text', text: 'Describe what is in this photo accurately in 2-3 sentences. Do not use prefixes like "In view:" or "Captured scene:". Start directly with your description.' },
               ],
             },
           ],
