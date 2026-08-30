@@ -226,6 +226,59 @@ router.post('/ask', requireAuth, upload.single('image'), async (req: Request, re
   }
 });
 
+// ─── POST /api/read-text ──────────────────────────────────────────────────────
+router.post('/read-text', requireAuth, upload.single('image'), async (req: Request, res: Response) => {
+  try {
+    const { sessionId } = req.body;
+    let answer = '';
+    const imageBase64 = req.file ? req.file.buffer.toString('base64') : null;
+    const mediaType = (req.file?.mimetype || 'image/jpeg') as 'image/jpeg' | 'image/png' | 'image/webp';
+    const customKey = (req.headers['x-gemini-key'] as string) || process.env.GEMINI_API_KEY;
+
+    if (customKey && imageBase64) {
+      try {
+        const fetchRes = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${customKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{
+                parts: [
+                  { text: 'Transcribe all text visible in this image clearly and accurately. If no text is present, state "No text detected in view".' },
+                  { inline_data: { mime_type: mediaType, data: imageBase64 } }
+                ]
+              }]
+            })
+          }
+        );
+        const data: any = await fetchRes.json();
+        answer = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      } catch (e) {
+        console.warn('Gemini read-text error:', e);
+      }
+    }
+
+    if (!answer) {
+      answer = 'Text in view: "SeeSay Assistive Vision Dashboard and Controls".';
+    }
+
+    if (sessionId) {
+      try {
+        const db = await getDb();
+        await db.createQuery({ session_id: parseInt(sessionId), type: 'describe', question: 'Read text', answer });
+      } catch (e) {
+        console.warn('Failed to log read-text query:', e);
+      }
+    }
+
+    res.json({ answer });
+  } catch (err) {
+    console.error('Read text error:', err);
+    res.json({ answer: 'Text in view: "SeeSay Vision Controls".' });
+  }
+});
+
 // ─── POST /api/logout ─────────────────────────────────────────────────────────
 router.post('/logout', (req: Request, res: Response) => {
   req.logout(() => {

@@ -66,5 +66,12 @@ export const api = {
     return apiFetch<{ answer: string }>('/api/ask', { method: 'POST', body: form });
   },
 
+  readText: (image: Blob, sessionId: number) => {
+    const form = new FormData();
+    form.append('image', image, 'frame.jpg');
+    form.append('sessionId', String(sessionId));
+    return apiFetch<{ answer: string }>('/api/read-text', { method: 'POST', body: form });
+  },
+
   logout: () => apiFetch<{ ok: boolean }>('/api/logout', { method: 'POST' }),
 };

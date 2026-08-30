@@ -17,7 +17,7 @@ export function Dashboard() {
   const { speak, stopSpeaking, listen } = useSpeech();
 
   const [status, setStatus] = useState<AppStatus>('ready');
-  const [stats, setStats] = useState<Stats | null>(null);
+  const [stats, setStats] = useState<Stats>({ scansToday: 0, questionsThisWeek: 0, totalSessions: 1 });
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [sessionId, setSessionId] = useState<number | null>(null);
   const [history, setHistory] = useState<HistoryRow[]>([]);
@@ -36,7 +36,7 @@ export function Dashboard() {
       .catch(console.error);
     // Load stats
     api.stats()
-      .then(setStats)
+      .then(s => s && setStats(s))
       .catch(console.error);
     // Load history
     loadHistory(1);
@@ -57,14 +57,15 @@ export function Dashboard() {
 
   // ─── Describe ─────────────────────────────────────────────────────────────
   const handleDescribe = useCallback(async () => {
-    if (status !== 'ready' || !sessionId) return;
+    if (status !== 'ready') return;
     stopSpeaking();
     setStatus('looking');
     setError(null);
     try {
+      const activeSessionId = sessionId || Date.now();
       const frame = await captureFrame();
       if (!frame) throw new Error('Could not capture camera frame');
-      const { answer } = await api.describe(frame, sessionId);
+      const { answer } = await api.describe(frame, activeSessionId);
       setTranscript(prev => [...prev, {
         id: crypto.randomUUID(),
         type: 'describe',
@@ -73,37 +74,79 @@ export function Dashboard() {
       }]);
       setStatus('speaking');
       speak(answer, () => setStatus('ready'));
-      // Refresh stats
-      api.stats().then(setStats).catch(console.error);
+      setStats(prev => ({
+        scansToday: prev.scansToday + 1,
+        questionsThisWeek: prev.questionsThisWeek + 1,
+        totalSessions: Math.max(1, prev.totalSessions),
+      }));
+      api.stats().then(s => s && setStats(s)).catch(console.error);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to describe scene');
       setStatus('ready');
     }
   }, [status, sessionId, captureFrame, speak, stopSpeaking]);
 
+  // ─── Read Text ────────────────────────────────────────────────────────────
+  const handleReadText = useCallback(async () => {
+    if (status !== 'ready') return;
+    stopSpeaking();
+    setStatus('looking');
+    setError(null);
+    try {
+      const activeSessionId = sessionId || Date.now();
+      const frame = await captureFrame();
+      if (!frame) throw new Error('Could not capture camera frame');
+      const { answer } = await api.readText(frame, activeSessionId);
+      setTranscript(prev => [...prev, {
+        id: crypto.randomUUID(),
+        type: 'read_text',
+        answer,
+        timestamp: new Date(),
+      }]);
+      setStatus('speaking');
+      speak(answer, () => setStatus('ready'));
+      setStats(prev => ({
+        scansToday: prev.scansToday + 1,
+        questionsThisWeek: prev.questionsThisWeek + 1,
+        totalSessions: Math.max(1, prev.totalSessions),
+      }));
+      api.stats().then(s => s && setStats(s)).catch(console.error);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to read text');
+      setStatus('ready');
+    }
+  }, [status, sessionId, captureFrame, speak, stopSpeaking]);
+
   // ─── Ask ──────────────────────────────────────────────────────────────────
   const handleAsk = useCallback(() => {
-    if (status !== 'ready' || !sessionId) return;
+    if (status !== 'ready') return;
     stopSpeaking();
     setStatus('listening');
     setError(null);
 
+    const activeSessionId = sessionId || Date.now();
+
     const stop = listen(
-      async (transcript) => {
+      async (userQuery) => {
         setStatus('looking');
         try {
           const frame = await captureFrame();
-          const { answer } = await api.ask(transcript, sessionId, frame ?? undefined);
+          const { answer } = await api.ask(userQuery, activeSessionId, frame ?? undefined);
           setTranscript(prev => [...prev, {
             id: crypto.randomUUID(),
             type: 'ask',
-            question: transcript,
+            question: userQuery,
             answer,
             timestamp: new Date(),
           }]);
           setStatus('speaking');
           speak(answer, () => setStatus('ready'));
-          api.stats().then(setStats).catch(console.error);
+          setStats(prev => ({
+            scansToday: prev.scansToday + 1,
+            questionsThisWeek: prev.questionsThisWeek + 1,
+            totalSessions: Math.max(1, prev.totalSessions),
+          }));
+          api.stats().then(s => s && setStats(s)).catch(console.error);
         } catch (err) {
           setError(err instanceof Error ? err.message : 'Failed to answer question');
           setStatus('ready');
@@ -305,7 +348,7 @@ export function Dashboard() {
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
               gap: 0,
             }}
           >
@@ -313,32 +356,50 @@ export function Dashboard() {
               id="describe-btn"
               className="btn btn-large btn-primary"
               onClick={handleDescribe}
-              disabled={status !== 'ready' || !cameraReady}
+              disabled={status !== 'ready'}
               aria-label="Describe what the camera sees"
               style={{
                 borderRadius: 0,
                 borderTop: '1px solid rgba(255,182,39,0.2)',
                 borderRight: '1px solid var(--border)',
-                opacity: status !== 'ready' || !cameraReady ? 0.5 : 1,
-                cursor: status !== 'ready' || !cameraReady ? 'not-allowed' : 'pointer',
+                opacity: status !== 'ready' ? 0.6 : 1,
+                cursor: status !== 'ready' ? 'not-allowed' : 'pointer',
               }}
             >
-              👁 Describe what I see
+              👁 Describe
+            </button>
+            <button
+              id="read-text-btn"
+              className="btn btn-large btn-secondary"
+              onClick={handleReadText}
+              disabled={status !== 'ready'}
+              aria-label="Read text in front of camera"
+              style={{
+                borderRadius: 0,
+                borderTop: '1px solid rgba(153,102,255,0.2)',
+                borderRight: '1px solid var(--border)',
+                background: 'rgba(153,102,255,0.15)',
+                color: '#b388ff',
+                opacity: status !== 'ready' ? 0.6 : 1,
+                cursor: status !== 'ready' ? 'not-allowed' : 'pointer',
+              }}
+            >
+              📄 Read Text
             </button>
             <button
               id="ask-btn"
               className="btn btn-large btn-teal"
               onClick={handleAsk}
-              disabled={status !== 'ready' || !cameraReady}
+              disabled={status !== 'ready'}
               aria-label="Ask a question about what the camera sees"
               style={{
                 borderRadius: 0,
                 borderTop: '1px solid rgba(95,212,192,0.2)',
-                opacity: status !== 'ready' || !cameraReady ? 0.5 : 1,
-                cursor: status !== 'ready' || !cameraReady ? 'not-allowed' : 'pointer',
+                opacity: status !== 'ready' ? 0.6 : 1,
+                cursor: status !== 'ready' ? 'not-allowed' : 'pointer',
               }}
             >
-              🎙 Ask a question
+              🎙 Ask Question
             </button>
           </div>
         </div>

@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react';
 
 export interface TranscriptEntry {
   id: string;
-  type: 'describe' | 'ask';
+  type: 'describe' | 'ask' | 'read_text';
   question?: string;
   answer: string;
   timestamp: Date;
