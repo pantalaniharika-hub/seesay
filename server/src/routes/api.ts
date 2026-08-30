@@ -20,9 +20,66 @@ const MODEL = process.env.CLAUDE_MODEL || 'claude-sonnet-4-5';
 // Helper to get current user with full data
 async function getFullUser(userId: number): Promise<User | null> {
   const db = await getDb();
-  // We store the whole user in session via deserializeUser patch below
-  // Fall back to a scan via google_id workaround — just return session user
   return null; // handled inline in routes
+}
+
+// ─── Gemini API Helpers (fallback if GEMINI_API_KEY is configured) ──────────
+async function callGemini(imageBase64: string, mimeType: string, prompt: string): Promise<string> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+  const response = await (globalThis as any).fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [
+        {
+          parts: [
+            { text: prompt },
+            {
+              inlineData: {
+                mimeType: mimeType,
+                data: imageBase64
+              }
+            }
+          ]
+        }
+      ]
+    })
+  });
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Gemini API error: ${response.status} ${errText}`);
+  }
+  const json = await response.json();
+  const resText = json.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!resText) throw new Error('No response text from Gemini');
+  return resText;
+}
+
+async function callGeminiText(prompt: string): Promise<string> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+  const response = await (globalThis as any).fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [
+        {
+          parts: [
+            { text: prompt }
+          ]
+        }
+      ]
+    })
+  });
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Gemini API error: ${response.status} ${errText}`);
+  }
+  const json = await response.json();
+  const resText = json.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!resText) throw new Error('No response text from Gemini');
+  return resText;
 }
 
 // ─── GET /api/me ─────────────────────────────────────────────────────────────
@@ -94,28 +151,33 @@ router.post('/describe', requireAuth, upload.single('image'), async (req: Reques
 
     const imageBase64 = req.file.buffer.toString('base64');
     const mediaType = (req.file.mimetype || 'image/jpeg') as 'image/jpeg' | 'image/png' | 'image/webp';
+    const prompt = 'You are a sight assistant for blind and low-vision users. Describe this scene in 2–3 concise, vivid sentences. Focus on what matters most: people, text, obstacles, objects of interest. Speak naturally as if talking to someone.';
 
-    const message = await anthropic.messages.create({
-      model: MODEL,
-      max_tokens: 512,
-      messages: [
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'image',
-              source: { type: 'base64', media_type: mediaType, data: imageBase64 },
-            },
-            {
-              type: 'text',
-              text: 'You are a sight assistant for blind and low-vision users. Describe this scene in 2–3 concise, vivid sentences. Focus on what matters most: people, text, obstacles, objects of interest. Speak naturally as if talking to someone.',
-            },
-          ],
-        },
-      ],
-    });
-
-    const answer = (message.content[0] as { type: string; text: string }).text;
+    let answer: string;
+    if (process.env.GEMINI_API_KEY) {
+      answer = await callGemini(imageBase64, mediaType, prompt);
+    } else {
+      const message = await anthropic.messages.create({
+        model: MODEL,
+        max_tokens: 512,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'image',
+                source: { type: 'base64', media_type: mediaType, data: imageBase64 },
+              },
+              {
+                type: 'text',
+                text: prompt,
+              },
+            ],
+          },
+        ],
+      });
+      answer = (message.content[0] as { type: string; text: string }).text;
+    }
 
     const db = await getDb();
     await db.createQuery({ session_id: parseInt(sessionId), type: 'describe', question: null, answer });
@@ -140,29 +202,39 @@ router.post('/ask', requireAuth, upload.single('image'), async (req: Request, re
       return;
     }
 
-    const contentParts: Anthropic.MessageParam['content'] = [];
+    let answer: string;
+    const prompt = `You are a sight assistant for blind and low-vision users. The user is looking at a scene and asks: "${question}". Answer concisely and helpfully in 1–3 sentences. Speak naturally.`;
 
-    if (req.file) {
-      const imageBase64 = req.file.buffer.toString('base64');
-      const mediaType = (req.file.mimetype || 'image/jpeg') as 'image/jpeg' | 'image/png' | 'image/webp';
+    if (process.env.GEMINI_API_KEY) {
+      if (req.file) {
+        const imageBase64 = req.file.buffer.toString('base64');
+        const mediaType = req.file.mimetype || 'image/jpeg';
+        answer = await callGemini(imageBase64, mediaType, prompt);
+      } else {
+        answer = await callGeminiText(prompt);
+      }
+    } else {
+      const contentParts: Anthropic.MessageParam['content'] = [];
+      if (req.file) {
+        const imageBase64 = req.file.buffer.toString('base64');
+        const mediaType = (req.file.mimetype || 'image/jpeg') as 'image/jpeg' | 'image/png' | 'image/webp';
+        contentParts.push({
+          type: 'image',
+          source: { type: 'base64', media_type: mediaType, data: imageBase64 },
+        });
+      }
       contentParts.push({
-        type: 'image',
-        source: { type: 'base64', media_type: mediaType, data: imageBase64 },
+        type: 'text',
+        text: prompt,
       });
+
+      const message = await anthropic.messages.create({
+        model: MODEL,
+        max_tokens: 512,
+        messages: [{ role: 'user', content: contentParts }],
+      });
+      answer = (message.content[0] as { type: string; text: string }).text;
     }
-
-    contentParts.push({
-      type: 'text',
-      text: `You are a sight assistant for blind and low-vision users. The user is looking at a scene and asks: "${question}". Answer concisely and helpfully in 1–3 sentences. If an image is provided, use it. Speak naturally.`,
-    });
-
-    const message = await anthropic.messages.create({
-      model: MODEL,
-      max_tokens: 512,
-      messages: [{ role: 'user', content: contentParts }],
-    });
-
-    const answer = (message.content[0] as { type: string; text: string }).text;
 
     const db = await getDb();
     await db.createQuery({ session_id: parseInt(sessionId), type: 'ask', question, answer });
