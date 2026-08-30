@@ -133,7 +133,6 @@ async function getSqliteDb() {
   try {
     const wasmPath = require.resolve('sql.js/dist/sql-wasm.wasm');
     const buf = fs.readFileSync(wasmPath);
-    // Convert Node Buffer → ArrayBuffer (sql.js requires ArrayBuffer not Buffer)
     wasmBinary = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
   } catch {
     // fallback: let sql.js try to locate it itself
@@ -145,6 +144,33 @@ async function getSqliteDb() {
   } else {
     sqliteDbInstance = new SQL.Database();
   }
+
+  // ── Auto-apply schema so tables always exist (critical in serverless) ─────────
+  // SQLite-compatible DDL: use INTEGER PRIMARY KEY (auto-increment) instead of SERIAL
+  sqliteDbInstance.run(`
+    CREATE TABLE IF NOT EXISTS users (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      google_id  TEXT UNIQUE NOT NULL,
+      name       TEXT NOT NULL,
+      email      TEXT,
+      avatar_url TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS sessions (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id    INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      started_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS queries (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id INTEGER REFERENCES sessions(id) ON DELETE CASCADE,
+      type       TEXT NOT NULL CHECK (type IN ('describe','ask')),
+      question   TEXT,
+      answer     TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+  `);
+
   return sqliteDbInstance;
 }
 
