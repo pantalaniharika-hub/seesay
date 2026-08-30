@@ -17,7 +17,13 @@ export function Dashboard() {
   const { speak, stopSpeaking, listen } = useSpeech();
 
   const [status, setStatus] = useState<AppStatus>('ready');
-  const [stats, setStats] = useState<Stats>({ scansToday: 0, questionsThisWeek: 0, totalSessions: 1 });
+  const [stats, setStats] = useState<Stats>(() => {
+    try {
+      const saved = localStorage.getItem('seesay_stats');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return { scansToday: 1, questionsThisWeek: 1, totalSessions: 1 };
+  });
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [sessionId, setSessionId] = useState<number | null>(null);
   const [history, setHistory] = useState<HistoryRow[]>([]);
@@ -27,6 +33,18 @@ export function Dashboard() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const incrementStats = useCallback((isQuestion = false) => {
+    setStats(prev => {
+      const next = {
+        scansToday: prev.scansToday + 1,
+        questionsThisWeek: prev.questionsThisWeek + (isQuestion ? 1 : 0),
+        totalSessions: Math.max(1, prev.totalSessions),
+      };
+      try { localStorage.setItem('seesay_stats', JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }, []);
+
   // ─── Init ──────────────────────────────────────────────────────────────────
   useEffect(() => {
     startCamera();
@@ -34,9 +52,14 @@ export function Dashboard() {
     api.createSession()
       .then(r => setSessionId(r.sessionId))
       .catch(console.error);
-    // Load stats
+    // Load stats from server if non-zero
     api.stats()
-      .then(s => s && setStats(s))
+      .then(s => {
+        if (s && (s.scansToday > 0 || s.questionsThisWeek > 0)) {
+          setStats(s);
+          try { localStorage.setItem('seesay_stats', JSON.stringify(s)); } catch {}
+        }
+      })
       .catch(console.error);
     // Load history
     loadHistory(1);
@@ -74,17 +97,12 @@ export function Dashboard() {
       }]);
       setStatus('speaking');
       speak(answer, () => setStatus('ready'));
-      setStats(prev => ({
-        scansToday: prev.scansToday + 1,
-        questionsThisWeek: prev.questionsThisWeek + 1,
-        totalSessions: Math.max(1, prev.totalSessions),
-      }));
-      api.stats().then(s => s && setStats(s)).catch(console.error);
+      incrementStats(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to describe scene');
       setStatus('ready');
     }
-  }, [status, sessionId, captureFrame, speak, stopSpeaking]);
+  }, [status, sessionId, captureFrame, speak, stopSpeaking, incrementStats]);
 
   // ─── Read Text ────────────────────────────────────────────────────────────
   const handleReadText = useCallback(async () => {
@@ -105,61 +123,58 @@ export function Dashboard() {
       }]);
       setStatus('speaking');
       speak(answer, () => setStatus('ready'));
-      setStats(prev => ({
-        scansToday: prev.scansToday + 1,
-        questionsThisWeek: prev.questionsThisWeek + 1,
-        totalSessions: Math.max(1, prev.totalSessions),
-      }));
-      api.stats().then(s => s && setStats(s)).catch(console.error);
+      incrementStats(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to read text');
       setStatus('ready');
     }
-  }, [status, sessionId, captureFrame, speak, stopSpeaking]);
+  }, [status, sessionId, captureFrame, speak, stopSpeaking, incrementStats]);
 
   // ─── Ask ──────────────────────────────────────────────────────────────────
+  const executeAsk = useCallback(async (userQuery: string) => {
+    setStatus('looking');
+    try {
+      const activeSessionId = sessionId || Date.now();
+      const frame = await captureFrame();
+      const { answer } = await api.ask(userQuery, activeSessionId, frame ?? undefined);
+      setTranscript(prev => [...prev, {
+        id: crypto.randomUUID(),
+        type: 'ask',
+        question: userQuery,
+        answer,
+        timestamp: new Date(),
+      }]);
+      setStatus('speaking');
+      speak(answer, () => setStatus('ready'));
+      incrementStats(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to answer question');
+      setStatus('ready');
+    }
+  }, [sessionId, captureFrame, speak, incrementStats]);
+
   const handleAsk = useCallback(() => {
     if (status !== 'ready') return;
     stopSpeaking();
     setStatus('listening');
     setError(null);
 
-    const activeSessionId = sessionId || Date.now();
-
     const stop = listen(
-      async (userQuery) => {
-        setStatus('looking');
-        try {
-          const frame = await captureFrame();
-          const { answer } = await api.ask(userQuery, activeSessionId, frame ?? undefined);
-          setTranscript(prev => [...prev, {
-            id: crypto.randomUUID(),
-            type: 'ask',
-            question: userQuery,
-            answer,
-            timestamp: new Date(),
-          }]);
-          setStatus('speaking');
-          speak(answer, () => setStatus('ready'));
-          setStats(prev => ({
-            scansToday: prev.scansToday + 1,
-            questionsThisWeek: prev.questionsThisWeek + 1,
-            totalSessions: Math.max(1, prev.totalSessions),
-          }));
-          api.stats().then(s => s && setStats(s)).catch(console.error);
-        } catch (err) {
-          setError(err instanceof Error ? err.message : 'Failed to answer question');
+      (userQuery) => {
+        executeAsk(userQuery);
+      },
+      (_errMsg) => {
+        const manualQuery = window.prompt("Ask SeeSay a question about what the camera sees:", "What do you see?");
+        if (manualQuery && manualQuery.trim()) {
+          executeAsk(manualQuery.trim());
+        } else {
           setStatus('ready');
         }
-      },
-      (errMsg) => {
-        setError(`Microphone error: ${errMsg}`);
-        setStatus('ready');
       }
     );
 
     return stop;
-  }, [status, sessionId, listen, captureFrame, speak, stopSpeaking]);
+  }, [status, listen, executeAsk, stopSpeaking]);
 
   // ─── Color ────────────────────────────────────────────────────────────────
   const handleColor = useCallback(async () => {
@@ -181,17 +196,12 @@ export function Dashboard() {
       }]);
       setStatus('speaking');
       speak(answer, () => setStatus('ready'));
-      setStats(prev => ({
-        scansToday: prev.scansToday + 1,
-        questionsThisWeek: prev.questionsThisWeek + 1,
-        totalSessions: Math.max(1, prev.totalSessions),
-      }));
-      api.stats().then(s => s && setStats(s)).catch(console.error);
+      incrementStats(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to identify color');
       setStatus('ready');
     }
-  }, [status, sessionId, captureFrame, speak, stopSpeaking]);
+  }, [status, sessionId, captureFrame, speak, stopSpeaking, incrementStats]);
 
   // ─── Sign out ─────────────────────────────────────────────────────────────
   const handleSignOut = useCallback(async () => {
