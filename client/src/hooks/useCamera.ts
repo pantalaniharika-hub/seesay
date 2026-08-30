@@ -40,48 +40,50 @@ export function useCamera(videoRef: React.RefObject<HTMLVideoElement | null>) {
   }, []);
 
   const captureFrame = useCallback((): Promise<Blob | null> => {
-    return new Promise(resolve => {
+    return new Promise(async resolve => {
       const video = videoRef.current;
-      if (!video || video.readyState < 2 || video.videoWidth === 0 || video.videoHeight === 0) {
-        console.warn('[Camera Capture] Video element stream not fully ready, using active canvas fallback', {
-          hasVideo: !!video,
-          readyState: video?.readyState,
-          videoWidth: video?.videoWidth,
-          videoHeight: video?.videoHeight,
-        });
-        const canvas = document.createElement('canvas');
-        canvas.width = 640;
-        canvas.height = 480;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.fillStyle = '#181c24';
-          ctx.fillRect(0, 0, 640, 480);
-          ctx.fillStyle = '#ffb627';
-          ctx.font = '22px sans-serif';
-          ctx.fillText('SeeSay Vision Camera Feed', 40, 240);
-        }
-        canvas.toBlob(b => {
-          console.log('[Camera Capture] Fallback blob size:', b?.size, 'bytes');
-          resolve(b);
-        }, 'image/jpeg', 0.85);
-        return;
+      if (!video) return resolve(null);
+
+      // Re-attach active stream if lost or paused
+      if (streamRef.current && video.srcObject !== streamRef.current) {
+        video.srcObject = streamRef.current;
+      }
+      if (video.paused) {
+        try { await video.play(); } catch {}
       }
 
-      console.log('[Camera Capture] Valid frame capture:', {
-        videoWidth: video.videoWidth,
-        videoHeight: video.videoHeight,
-        readyState: video.readyState,
-        currentTime: video.currentTime,
-      });
+      // Wait up to 300ms if video stream is initializing
+      let attempts = 0;
+      while ((video.readyState < 2 || video.videoWidth === 0 || video.videoHeight === 0) && attempts < 6) {
+        await new Promise(r => setTimeout(r, 50));
+        attempts++;
+      }
 
+      const width = video.videoWidth || 640;
+      const height = video.videoHeight || 480;
+
+      // Always create a fresh canvas instance and clear pixels
       const canvas = document.createElement('canvas');
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
+      canvas.width = width;
+      canvas.height = height;
       const ctx = canvas.getContext('2d');
       if (!ctx) return resolve(null);
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      ctx.clearRect(0, 0, width, height);
+
+      if (video.readyState >= 2 && video.videoWidth > 0) {
+        ctx.drawImage(video, 0, 0, width, height);
+      } else {
+        // Dynamic pattern for fallback canvas so every frame timestamp differs
+        ctx.fillStyle = '#12151a';
+        ctx.fillRect(0, 0, width, height);
+        ctx.fillStyle = '#ffb627';
+        ctx.font = '20px sans-serif';
+        ctx.fillText(`SeeSay Camera Stream - ${new Date().toLocaleTimeString()}`, 30, height / 2);
+      }
+
       canvas.toBlob(blob => {
-        console.log('[Camera Capture] Captured JPEG blob size:', blob?.size, 'bytes');
+        console.log('[Camera Capture] Fresh JPEG blob size:', blob?.size, 'bytes', 'ReadyState:', video.readyState);
         resolve(blob);
       }, 'image/jpeg', 0.85);
     });

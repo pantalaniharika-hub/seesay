@@ -17,6 +17,7 @@ export function Dashboard() {
   const { speak, stopSpeaking, listen } = useSpeech();
 
   const [status, setStatus] = useState<AppStatus>('ready');
+  const [debugCaptureUrl, setDebugCaptureUrl] = useState<string | null>(null);
   const [stats, setStats] = useState<Stats>(() => {
     try {
       const saved = localStorage.getItem('seesay_stats');
@@ -32,6 +33,15 @@ export function Dashboard() {
   const [historyTotalPages, setHistoryTotalPages] = useState(1);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const updateDebugPreview = (frame: Blob | null) => {
+    if (frame) {
+      try {
+        const url = URL.createObjectURL(frame);
+        setDebugCaptureUrl(url);
+      } catch {}
+    }
+  };
 
   const incrementStats = useCallback((isQuestion = false) => {
     setStats(prev => {
@@ -88,6 +98,7 @@ export function Dashboard() {
       const activeSessionId = sessionId || Date.now();
       const frame = await captureFrame();
       if (!frame) throw new Error('Could not capture camera frame');
+      updateDebugPreview(frame);
       const { answer } = await api.describe(frame, activeSessionId);
       setTranscript(prev => [...prev, {
         id: crypto.randomUUID(),
@@ -114,6 +125,7 @@ export function Dashboard() {
       const activeSessionId = sessionId || Date.now();
       const frame = await captureFrame();
       if (!frame) throw new Error('Could not capture camera frame');
+      updateDebugPreview(frame);
       const { answer } = await api.readText(frame, activeSessionId);
       setTranscript(prev => [...prev, {
         id: crypto.randomUUID(),
@@ -136,6 +148,7 @@ export function Dashboard() {
     try {
       const activeSessionId = sessionId || Date.now();
       const frame = await captureFrame();
+      updateDebugPreview(frame);
       const { answer } = await api.ask(userQuery, activeSessionId, frame ?? undefined);
       setTranscript(prev => [...prev, {
         id: crypto.randomUUID(),
@@ -186,6 +199,7 @@ export function Dashboard() {
       const activeSessionId = sessionId || Date.now();
       const frame = await captureFrame();
       if (!frame) throw new Error('Could not capture camera frame');
+      updateDebugPreview(frame);
       const { answer } = await api.color(frame, activeSessionId);
       setTranscript(prev => [...prev, {
         id: crypto.randomUUID(),
@@ -369,6 +383,30 @@ export function Dashboard() {
               </div>
             )}
           </div>
+
+          {/* Debug Captured Frame Thumbnail (FIX 1) */}
+          {debugCaptureUrl && (
+            <div
+              style={{
+                padding: '8px 16px',
+                background: 'rgba(0,0,0,0.65)',
+                borderTop: '1px solid var(--border)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: '0.75rem', color: '#ffb627', fontWeight: 600 }}>📷 Live Frame Preview:</span>
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Fresh frame captured & sent to API</span>
+              </div>
+              <img
+                src={debugCaptureUrl}
+                alt="Captured frame thumbnail preview"
+                style={{ height: 44, borderRadius: 4, border: '1.5px solid #ffb627' }}
+              />
+            </div>
+          )}
 
           {/* Error banner */}
           {error && (

@@ -310,6 +310,7 @@ function getDynamicVisionResponse(imageBase64: string | null, actionType: 'descr
 
 // ─── POST /api/describe ───────────────────────────────────────────────────────
 router.post('/describe', requireAuth, upload.single('image'), async (req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
   try {
     if (!req.file) {
       res.status(400).json({ error: 'No image provided' });
@@ -320,6 +321,9 @@ router.post('/describe', requireAuth, upload.single('image'), async (req: Reques
       res.status(400).json({ error: 'sessionId required' });
       return;
     }
+
+    const imageByteLength = req.file.buffer.length;
+    console.log('[API Vision Describe Payload] Received image byte length:', imageByteLength, 'bytes');
 
     const imageBase64 = req.file.buffer.toString('base64');
     const mediaType = (req.file.mimetype || 'image/jpeg') as 'image/jpeg' | 'image/png' | 'image/webp';
@@ -387,12 +391,16 @@ router.post('/describe', requireAuth, upload.single('image'), async (req: Reques
 
 // ─── POST /api/ask ────────────────────────────────────────────────────────────
 router.post('/ask', requireAuth, upload.single('image'), async (req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
   try {
     const { question, sessionId } = req.body;
     if (!question) {
       res.status(400).json({ error: 'question required' });
       return;
     }
+
+    const imageByteLength = req.file ? req.file.buffer.length : 0;
+    console.log('[API Vision Ask Payload] Received image byte length:', imageByteLength, 'bytes', 'Question:', question);
 
     const imageBase64 = req.file ? req.file.buffer.toString('base64') : null;
     const mediaType = (req.file?.mimetype || 'image/jpeg') as 'image/jpeg' | 'image/png' | 'image/webp';

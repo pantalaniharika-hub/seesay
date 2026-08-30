@@ -3,6 +3,13 @@ const BASE = '';  // Same origin in prod; Vite proxy in dev
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     credentials: 'include',
+    cache: 'no-store',
+    headers: {
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+      ...(options?.headers || {}),
+    },
     ...options,
   });
   if (!res.ok) {
