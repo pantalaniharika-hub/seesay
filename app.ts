@@ -4,7 +4,7 @@ import dotenv from 'dotenv';
 dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 
 import express, { Request, Response, NextFunction } from 'express';
-import session from 'express-session';
+import cookieSession from 'cookie-session';
 import cors from 'cors';
 import passport from 'passport';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
@@ -35,7 +35,10 @@ function setupPassport() {
             });
           }
           return done(null, user);
-        } catch (err) { return done(err as Error); }
+        } catch (err) {
+          console.error('Passport strategy error:', err);
+          return done(err as Error);
+        }
       }
     )
   );
@@ -43,7 +46,7 @@ function setupPassport() {
   passport.deserializeUser((user: Express.User, done) => done(null, user));
 }
 
-// ─── App factory (cached singleton) ──────────────────────────────────────────
+// ─── App factory (singleton) ──────────────────────────────────────────────────
 let appInstance: express.Express | null = null;
 
 export async function createApp(): Promise<express.Express> {
@@ -56,43 +59,47 @@ export async function createApp(): Promise<express.Express> {
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true }));
 
-  // ─── Session store ──────────────────────────────────────────────────────────
-  let store: session.Store | undefined;
-  if (process.env.DATABASE_URL) {
-    const connectPg = (await import('connect-pg-simple')).default;
-    const { Pool } = await import('pg');
-    const PgStore = connectPg(session);
-    const pool = new Pool({
-      connectionString: process.env.DATABASE_URL,
-      ssl: isProd ? { rejectUnauthorized: false } : false,
-    });
-    store = new PgStore({ pool, tableName: 'http_sessions', createTableIfMissing: true });
-  }
+  // ─── Cookie-based session (works across serverless invocations) ──────────────
+  // Session data lives in a signed cookie — no server-side store needed.
+  // Max ~4KB; fine for storing the passport user object.
+  app.use(
+    cookieSession({
+      name: 'seesay_session',
+      secret: process.env.SESSION_SECRET || 'dev-secret-change-me',
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      secure: isProd,
+      httpOnly: true,
+      sameSite: 'lax',
+    })
+  );
 
-  app.use(session({
-    store,
-    secret: process.env.SESSION_SECRET || 'dev-secret-change-me',
-    resave: false,
-    saveUninitialized: false,
-    cookie: { secure: isProd, httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000, sameSite: 'lax' },
-  }));
+  // Passport requires session.save / session.regenerate shims with cookie-session
+  app.use((req: Request, _res: Response, next: NextFunction) => {
+    if (req.session && !req.session.save) {
+      (req.session as any).save = (cb: () => void) => cb?.();
+    }
+    if (req.session && !req.session.regenerate) {
+      (req.session as any).regenerate = (cb: () => void) => cb?.();
+    }
+    next();
+  });
 
   setupPassport();
   app.use(passport.initialize());
   app.use(passport.session());
 
-  // ─── Auth routes ────────────────────────────────────────────────────────────
+  // ─── Auth routes ─────────────────────────────────────────────────────────────
   app.get('/auth/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
-  app.get('/auth/google/callback',
+  app.get(
+    '/auth/google/callback',
     passport.authenticate('google', { failureRedirect: '/?error=auth_failed' }),
     (_req: Request, res: Response) => res.redirect('/dashboard')
   );
 
-  // ─── API routes ─────────────────────────────────────────────────────────────
+  // ─── API routes ───────────────────────────────────────────────────────────────
   app.use('/api', apiRouter);
 
-  // ─── Static files + SPA fallback ────────────────────────────────────────────
-  // In production (Vercel), serve client/dist; locally, Vite dev server handles it
+  // ─── Static files + SPA fallback (local dev / non-Vercel) ───────────────────
   const distPath = path.resolve(process.cwd(), 'client/dist');
   if (fs.existsSync(distPath)) {
     app.use(express.static(distPath));
@@ -101,10 +108,10 @@ export async function createApp(): Promise<express.Express> {
     });
   }
 
-  // ─── Error handler ───────────────────────────────────────────────────────────
+  // ─── Error handler ────────────────────────────────────────────────────────────
   app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
-    console.error(err.stack);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('[SeeSay Error]', err.message, err.stack);
+    res.status(500).json({ error: 'Internal server error', detail: err.message });
   });
 
   appInstance = app;

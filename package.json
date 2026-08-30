@@ -16,8 +16,10 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
+    "@types/cookie-session": "^2.0.49",
     "@vercel/node": "^5.0.0",
     "connect-pg-simple": "^10.0.0",
+    "cookie-session": "^2.1.1",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
