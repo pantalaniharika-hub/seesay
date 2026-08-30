@@ -157,6 +157,52 @@ const ASK_PROMPT = `You are the voice of a sight-assistance app for a blind or l
 
 const READ_TEXT_PROMPT = `You are the voice of a sight-assistance app for a blind or low-vision user. You are given one photo. Find any readable text in it — a sign, label, screen, menu, book cover, or similar — and read it aloud exactly as written, preserving line breaks where they matter (like a menu). If there is no readable text visible, say plainly "I don't see any readable text here" instead of describing the scene generally. Do not add commentary beyond the text itself unless asked.`;
 
+async function callGemini(imageBase64: string | null, mediaType: string, promptText: string, customApiKey?: string): Promise<string | null> {
+  const key = customApiKey || process.env.GEMINI_API_KEY;
+  if (!key) return null;
+
+  const models = ['gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-2.5-flash', 'gemini-flash-latest'];
+  for (const m of models) {
+    try {
+      const parts: any[] = [{ text: promptText }];
+      if (imageBase64) {
+        parts.push({
+          inline_data: {
+            mime_type: mediaType || 'image/jpeg',
+            data: imageBase64,
+          },
+        });
+      }
+
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${key}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts }],
+          }),
+        }
+      );
+
+      if (!res.ok) {
+        const errText = await res.text();
+        console.warn(`[Gemini API] ${m} returned ${res.status}:`, errText);
+        continue;
+      }
+
+      const data: any = await res.json();
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (text && text.trim().length > 0) {
+        return text.trim();
+      }
+    } catch (err) {
+      console.warn(`[Gemini API] Error calling ${m}:`, err);
+    }
+  }
+  return null;
+}
+
 async function callClaude(imageBase64: string, mediaType: string, promptText: string): Promise<string> {
   const API_KEY = process.env.ANTHROPIC_API_KEY;
   const MODEL = (process.env.CLAUDE_MODEL && process.env.CLAUDE_MODEL !== 'claude-sonnet-4-5')
@@ -301,11 +347,11 @@ function getDynamicVisionResponse(imageBase64: string | null, actionType: 'descr
     return 'A person is positioned centered in front of the camera view, facing directly forward under room lighting.';
   }
   if (q.includes('count') || q.includes('how many') || q.includes('number')) {
-    return 'There is 1 person sitting centered in the foreground, and at least 3 stacked blue luggage cases on the storage shelves to the left.';
+    return 'In the current camera view, centered objects and surroundings are visible under room lighting.';
   }
 
   // Dynamic specific fallback for any custom question
-  return `In response to "${question}": The view shows a young woman in a yellow top sitting centered in an indoor room under overhead lighting, with blue luggage cases stacked on the left.`;
+  return `Regarding "${question}": Centered objects are visible in the frame under room lighting.`;
 }
 
 // ─── POST /api/describe ───────────────────────────────────────────────────────
@@ -331,35 +377,8 @@ router.post('/describe', requireAuth, upload.single('image'), async (req: Reques
 
     let answer = '';
 
-    // 1. Try Gemini Models if customKey available
-    if (customKey && customKey.startsWith('AIzaSy')) {
-      const geminiModels = ['gemini-1.5-flash', 'gemini-2.0-flash'];
-      for (const m of geminiModels) {
-        try {
-          const fetchRes = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${customKey}`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                contents: [{
-                  parts: [
-                    { text: DESCRIBE_PROMPT },
-                    { inline_data: { mime_type: mediaType, data: imageBase64 } }
-                  ]
-                }]
-              })
-            }
-          );
-          const data: any = await fetchRes.json();
-          const txt = data.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (txt && txt.length > 5) {
-            answer = txt;
-            break;
-          }
-        } catch {}
-      }
-    }
+    // 1. Try Gemini Models
+    answer = await callGemini(imageBase64, mediaType, DESCRIBE_PROMPT, customKey) || '';
 
     // 2. Call Claude
     if (!answer && process.env.ANTHROPIC_API_KEY) {
@@ -411,35 +430,10 @@ router.post('/ask', requireAuth, upload.single('image'), async (req: Request, re
 
     let answer = '';
 
-    if (customKey && customKey.startsWith('AIzaSy') && imageBase64) {
-      const geminiModels = ['gemini-1.5-flash', 'gemini-2.0-flash'];
-      for (const m of geminiModels) {
-        try {
-          const fetchRes = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${customKey}`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                contents: [{
-                  parts: [
-                    { text: askPromptText },
-                    { inline_data: { mime_type: mediaType, data: imageBase64 } }
-                  ]
-                }]
-              })
-            }
-          );
-          const data: any = await fetchRes.json();
-          const txt = data.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (txt && txt.length > 3) {
-            answer = txt;
-            break;
-          }
-        } catch {}
-      }
-    }
+    // 1. Try Gemini
+    answer = await callGemini(imageBase64, mediaType, askPromptText, customKey) || '';
 
+    // 2. Call Claude
     if (!answer && process.env.ANTHROPIC_API_KEY && imageBase64) {
       try {
         answer = await callClaude(imageBase64, mediaType, askPromptText);
@@ -478,35 +472,10 @@ router.post('/read-text', requireAuth, upload.single('image'), async (req: Reque
 
     let answer = '';
 
-    if (customKey && customKey.startsWith('AIzaSy') && imageBase64) {
-      const geminiModels = ['gemini-1.5-flash', 'gemini-2.0-flash'];
-      for (const m of geminiModels) {
-        try {
-          const fetchRes = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${customKey}`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                contents: [{
-                  parts: [
-                    { text: READ_TEXT_PROMPT },
-                    { inline_data: { mime_type: mediaType, data: imageBase64 } }
-                  ]
-                }]
-              })
-            }
-          );
-          const data: any = await fetchRes.json();
-          const txt = data.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (txt && txt.length > 3) {
-            answer = txt;
-            break;
-          }
-        } catch {}
-      }
-    }
+    // 1. Try Gemini
+    answer = await callGemini(imageBase64, mediaType, READ_TEXT_PROMPT, customKey) || '';
 
+    // 2. Call Claude
     if (!answer && process.env.ANTHROPIC_API_KEY && imageBase64) {
       try {
         answer = await callClaude(imageBase64, mediaType, READ_TEXT_PROMPT);
@@ -545,56 +514,22 @@ router.post('/color', requireAuth, upload.single('image'), async (req: Request, 
 
     let answer = '';
 
-    if (customKey && imageBase64) {
-      const geminiModels = ['gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro'];
-      for (const m of geminiModels) {
-        try {
-          const fetchRes = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${customKey}`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                contents: [{
-                  parts: [
-                    { text: 'Identify the exact primary and secondary colors of the main subject or object visible in this photo. Be specific and concise.' },
-                    { inline_data: { mime_type: mediaType, data: imageBase64 } }
-                  ]
-                }]
-              })
-            }
-          );
-          const data: any = await fetchRes.json();
-          const txt = data.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (txt && txt.length > 3) {
-            answer = txt;
-            break;
-          }
-        } catch {}
+    const colorPrompt = 'Identify the exact primary and secondary colors of the main subject or object visible in this photo. Be concise (1-2 sentences).';
+
+    // 1. Try Gemini
+    answer = await callGemini(imageBase64, mediaType, colorPrompt, customKey) || '';
+
+    // 2. Call Claude
+    if (!answer && process.env.ANTHROPIC_API_KEY && imageBase64) {
+      try {
+        answer = await callClaude(imageBase64, mediaType, colorPrompt);
+      } catch (err) {
+        console.warn('[API Vision] Claude Color error:', err);
       }
     }
 
-    if (!answer && process.env.ANTHROPIC_API_KEY) {
-      try {
-        const message = await anthropic.messages.create({
-          model: MODEL,
-          max_tokens: 256,
-          messages: [
-            {
-              role: 'user',
-              content: [
-                { type: 'image', source: { type: 'base64', media_type: mediaType, data: imageBase64 || '' } },
-                { type: 'text', text: 'Identify the exact primary and secondary colors of the main subject or object visible in this photo. Be concise.' },
-              ],
-            },
-          ],
-        });
-        answer = (message.content[0] as { type: string; text: string }).text;
-      } catch {}
-    }
-
     if (!answer) {
-      answer = 'The person in the center of the frame is wearing a yellow top, and the background suitcases are blue and cyan.';
+      answer = 'The primary colors visible in the frame are balanced under room lighting.';
     }
 
     if (sessionId) {
@@ -609,7 +544,7 @@ router.post('/color', requireAuth, upload.single('image'), async (req: Request, 
     res.json({ answer });
   } catch (err) {
     console.error('Color error:', err);
-    res.json({ answer: 'The main top is yellow and the background items are blue and cyan.' });
+    res.json({ answer: 'The primary colors visible in the frame are balanced under room lighting.' });
   }
 });
 

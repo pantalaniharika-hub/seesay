@@ -41,8 +41,9 @@ app.get('/auth/google/callback', (req: Request, res: Response) => {
   res.redirect('/dashboard');
 });
 
-// API routes
+// API routes (support both /api/* and rewritten /* paths from Vercel)
 app.use('/api', apiRouter);
+app.use(apiRouter);
 
 // Static frontend fallback
 const clientDist = path.resolve(__dirname, '../client/dist');
