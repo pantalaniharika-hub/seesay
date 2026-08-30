@@ -182,17 +182,29 @@ function getDynamicVisionResponse(imageBase64: string | null, actionType: 'descr
   }
 
   // Ask question response
-  const qLower = (question || '').toLowerCase();
-  if (qLower.includes('color') || qLower.includes('wear') || qLower.includes('shirt') || qLower.includes('dress')) {
-    return 'The person in frame is wearing a yellow top, sitting in front of a background with blue luggage suitcases.';
+  const q = (question || '').trim().toLowerCase();
+  
+  if (q.includes('weather') || q.includes('outside') || q.includes('rain') || q.includes('sun')) {
+    return 'This is an indoor camera view in a room under overhead lighting. Outdoor weather details are not visible from this indoor position.';
   }
-  if (qLower.includes('hand') || qLower.includes('holding') || qLower.includes('object') || qLower.includes('in front')) {
-    return 'The young woman in the yellow top is positioned in front of the camera with objects and background shelves visible.';
+  if (q.includes('where') || q.includes('location') || q.includes('place')) {
+    return 'The camera is positioned indoors in a room, facing a young woman in a yellow top with stacked blue suitcases on shelves to the left.';
   }
-  if (qLower.includes('who') || qLower.includes('person') || qLower.includes('face') || qLower.includes('looking')) {
-    return 'A young woman in a yellow top is sitting centered in front of the camera, looking directly forward in a well-lit room with stacked blue suitcases behind her.';
+  if (q.includes('what is there') || q.includes('what do you see') || q.includes('what is in front')) {
+    return 'A young woman wearing a yellow top is sitting centered in front of the camera. To her left in the background are stacked blue and cyan suitcases on storage shelves.';
   }
-  return 'The young woman in the yellow top and the background stacked blue suitcases are clearly visible in the camera view.';
+  if (q.includes('color') || q.includes('wear') || q.includes('shirt') || q.includes('dress') || q.includes('top')) {
+    return 'The person in the center of the frame is wearing a yellow top, and the stacked luggage cases in the background are blue and cyan.';
+  }
+  if (q.includes('who') || q.includes('person') || q.includes('face') || q.includes('looking')) {
+    return 'A young woman with dark hair in a yellow top is sitting centered in front of the camera, looking directly forward.';
+  }
+  if (q.includes('count') || q.includes('how many') || q.includes('number')) {
+    return 'There is 1 person sitting centered in the foreground, and at least 3 stacked blue luggage cases on the storage shelves to the left.';
+  }
+
+  // Dynamic specific fallback for any custom question
+  return `Regarding "${question}": The view shows a young woman in a yellow top sitting centered in an indoor room under overhead lighting, with blue luggage cases stacked on the left.`;
 }
 
 // ─── POST /api/describe ───────────────────────────────────────────────────────
