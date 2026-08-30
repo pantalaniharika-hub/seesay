@@ -7,7 +7,12 @@ import { User } from '../db';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const anthropic = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY,
+  defaultHeaders: process.env.ANTHROPIC_WORKSPACE_ID ? {
+    'anthropic-workspace-id': process.env.ANTHROPIC_WORKSPACE_ID
+  } : undefined
+});
 
 // Use the model from env (so you can override on Render) or fall back to claude-sonnet-4-5
 const MODEL = process.env.CLAUDE_MODEL || 'claude-sonnet-4-5';
