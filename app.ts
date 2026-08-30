@@ -1,4 +1,5 @@
 import path from 'path';
+import fs from 'fs';
 import dotenv from 'dotenv';
 dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 
@@ -9,11 +10,10 @@ import passport from 'passport';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import { getDb } from './server/src/db/index';
 import apiRouter from './server/src/routes/api';
-import { requireAuth } from './server/src/middleware/auth';
 
 const isProd = process.env.NODE_ENV === 'production';
 
-// ─── Passport setup inline (avoids circular import issues on Vercel) ──────────
+// ─── Passport setup ───────────────────────────────────────────────────────────
 function setupPassport() {
   passport.use(
     new GoogleStrategy(
@@ -39,11 +39,11 @@ function setupPassport() {
       }
     )
   );
-  passport.serializeUser((user: Express.User, done) => { done(null, user); });
-  passport.deserializeUser((user: Express.User, done) => { done(null, user); });
+  passport.serializeUser((user: Express.User, done) => done(null, user));
+  passport.deserializeUser((user: Express.User, done) => done(null, user));
 }
 
-// ─── App factory ──────────────────────────────────────────────────────────────
+// ─── App factory (cached singleton) ──────────────────────────────────────────
 let appInstance: express.Express | null = null;
 
 export async function createApp(): Promise<express.Express> {
@@ -53,10 +53,10 @@ export async function createApp(): Promise<express.Express> {
   app.set('trust proxy', 1);
 
   app.use(cors({ origin: isProd ? false : 'http://localhost:5173', credentials: true }));
-  app.use(express.json({ limit: '1mb' }));
+  app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true }));
 
-  // Session store
+  // ─── Session store ──────────────────────────────────────────────────────────
   let store: session.Store | undefined;
   if (process.env.DATABASE_URL) {
     const connectPg = (await import('connect-pg-simple')).default;
@@ -81,17 +81,27 @@ export async function createApp(): Promise<express.Express> {
   app.use(passport.initialize());
   app.use(passport.session());
 
-  // Auth routes
+  // ─── Auth routes ────────────────────────────────────────────────────────────
   app.get('/auth/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
   app.get('/auth/google/callback',
     passport.authenticate('google', { failureRedirect: '/?error=auth_failed' }),
-    (_req: Request, res: Response) => { res.redirect('/dashboard'); }
+    (_req: Request, res: Response) => res.redirect('/dashboard')
   );
 
-  // API
+  // ─── API routes ─────────────────────────────────────────────────────────────
   app.use('/api', apiRouter);
 
-  // Error handler
+  // ─── Static files + SPA fallback ────────────────────────────────────────────
+  // In production (Vercel), serve client/dist; locally, Vite dev server handles it
+  const distPath = path.resolve(process.cwd(), 'client/dist');
+  if (fs.existsSync(distPath)) {
+    app.use(express.static(distPath));
+    app.get('*', (_req: Request, res: Response) => {
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
+  }
+
+  // ─── Error handler ───────────────────────────────────────────────────────────
   app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
     console.error(err.stack);
     res.status(500).json({ error: 'Internal server error' });
