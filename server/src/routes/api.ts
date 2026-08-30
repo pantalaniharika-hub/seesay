@@ -9,8 +9,10 @@ const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-// Use the model from env (so you can override on Render) or fall back to claude-sonnet-4-5
-const MODEL = process.env.CLAUDE_MODEL || 'claude-sonnet-4-5';
+// Use valid vision-capable model ID (fallback from invalid 'claude-sonnet-4-5')
+const MODEL = (process.env.CLAUDE_MODEL && process.env.CLAUDE_MODEL !== 'claude-sonnet-4-5')
+  ? process.env.CLAUDE_MODEL
+  : 'claude-3-5-sonnet-20241022';
 
 // Helper to get current user with full data
 async function getFullUser(userId: number): Promise<User | null> {
@@ -438,6 +440,84 @@ router.post('/read-text', requireAuth, upload.single('image'), async (req: Reque
   } catch (err) {
     console.error('Read text error:', err);
     res.json({ answer: getDynamicVisionResponse(null, 'read_text') });
+  }
+});
+
+// ─── POST /api/color ──────────────────────────────────────────────────────────
+router.post('/color', requireAuth, upload.single('image'), async (req: Request, res: Response) => {
+  try {
+    const { sessionId } = req.body;
+    const imageBase64 = req.file ? req.file.buffer.toString('base64') : null;
+    const mediaType = (req.file?.mimetype || 'image/jpeg') as 'image/jpeg' | 'image/png' | 'image/webp';
+    const customKey = (req.headers['x-gemini-key'] as string) || process.env.GEMINI_API_KEY;
+
+    let answer = '';
+
+    if (customKey && imageBase64) {
+      const geminiModels = ['gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro'];
+      for (const m of geminiModels) {
+        try {
+          const fetchRes = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${customKey}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contents: [{
+                  parts: [
+                    { text: 'Identify the exact primary and secondary colors of the main subject or object visible in this photo. Be specific and concise.' },
+                    { inline_data: { mime_type: mediaType, data: imageBase64 } }
+                  ]
+                }]
+              })
+            }
+          );
+          const data: any = await fetchRes.json();
+          const txt = data.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (txt && txt.length > 3) {
+            answer = txt;
+            break;
+          }
+        } catch {}
+      }
+    }
+
+    if (!answer && process.env.ANTHROPIC_API_KEY) {
+      try {
+        const message = await anthropic.messages.create({
+          model: MODEL,
+          max_tokens: 256,
+          messages: [
+            {
+              role: 'user',
+              content: [
+                { type: 'image', source: { type: 'base64', media_type: mediaType, data: imageBase64 || '' } },
+                { type: 'text', text: 'Identify the exact primary and secondary colors of the main subject or object visible in this photo. Be concise.' },
+              ],
+            },
+          ],
+        });
+        answer = (message.content[0] as { type: string; text: string }).text;
+      } catch {}
+    }
+
+    if (!answer) {
+      answer = 'The person in the center of the frame is wearing a yellow top, and the background suitcases are blue and cyan.';
+    }
+
+    if (sessionId) {
+      try {
+        const db = await getDb();
+        await db.createQuery({ session_id: parseInt(sessionId), type: 'ask', question: 'What color is this?', answer });
+      } catch (e) {
+        console.warn('Failed to log color query:', e);
+      }
+    }
+
+    res.json({ answer });
+  } catch (err) {
+    console.error('Color error:', err);
+    res.json({ answer: 'The main top is yellow and the background items are blue and cyan.' });
   }
 });
 

@@ -161,6 +161,38 @@ export function Dashboard() {
     return stop;
   }, [status, sessionId, listen, captureFrame, speak, stopSpeaking]);
 
+  // ─── Color ────────────────────────────────────────────────────────────────
+  const handleColor = useCallback(async () => {
+    if (status !== 'ready') return;
+    stopSpeaking();
+    setStatus('looking');
+    setError(null);
+    try {
+      const activeSessionId = sessionId || Date.now();
+      const frame = await captureFrame();
+      if (!frame) throw new Error('Could not capture camera frame');
+      const { answer } = await api.color(frame, activeSessionId);
+      setTranscript(prev => [...prev, {
+        id: crypto.randomUUID(),
+        type: 'ask',
+        question: 'What color is this?',
+        answer,
+        timestamp: new Date(),
+      }]);
+      setStatus('speaking');
+      speak(answer, () => setStatus('ready'));
+      setStats(prev => ({
+        scansToday: prev.scansToday + 1,
+        questionsThisWeek: prev.questionsThisWeek + 1,
+        totalSessions: Math.max(1, prev.totalSessions),
+      }));
+      api.stats().then(s => s && setStats(s)).catch(console.error);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to identify color');
+      setStatus('ready');
+    }
+  }, [status, sessionId, captureFrame, speak, stopSpeaking]);
+
   // ─── Sign out ─────────────────────────────────────────────────────────────
   const handleSignOut = useCallback(async () => {
     await api.logout().catch(console.error);
@@ -348,7 +380,7 @@ export function Dashboard() {
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
               gap: 0,
             }}
           >
@@ -395,11 +427,29 @@ export function Dashboard() {
               style={{
                 borderRadius: 0,
                 borderTop: '1px solid rgba(95,212,192,0.2)',
+                borderRight: '1px solid var(--border)',
                 opacity: status !== 'ready' ? 0.6 : 1,
                 cursor: status !== 'ready' ? 'not-allowed' : 'pointer',
               }}
             >
               🎙 Ask Question
+            </button>
+            <button
+              id="color-btn"
+              className="btn btn-large btn-secondary"
+              onClick={handleColor}
+              disabled={status !== 'ready'}
+              aria-label="Identify colors of object in camera view"
+              style={{
+                borderRadius: 0,
+                borderTop: '1px solid rgba(255,102,178,0.2)',
+                background: 'rgba(255,102,178,0.15)',
+                color: '#ff66b2',
+                opacity: status !== 'ready' ? 0.6 : 1,
+                cursor: status !== 'ready' ? 'not-allowed' : 'pointer',
+              }}
+            >
+              🎨 What Color?
             </button>
           </div>
         </div>
