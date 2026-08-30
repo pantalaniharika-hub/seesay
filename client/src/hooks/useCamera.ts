@@ -42,25 +42,26 @@ export function useCamera(videoRef: React.RefObject<HTMLVideoElement | null>) {
   const captureFrame = useCallback((): Promise<Blob | null> => {
     return new Promise(async resolve => {
       const video = videoRef.current;
-      if (!video) return resolve(null);
 
-      // Re-attach active stream if lost or paused
-      if (streamRef.current && video.srcObject !== streamRef.current) {
-        video.srcObject = streamRef.current;
-      }
-      if (video.paused) {
-        try { await video.play(); } catch {}
+      if (video) {
+        // Re-attach active stream if lost or paused
+        if (streamRef.current && video.srcObject !== streamRef.current) {
+          video.srcObject = streamRef.current;
+        }
+        if (video.paused) {
+          try { await video.play(); } catch {}
+        }
+
+        // Wait up to 300ms if video stream is initializing
+        let attempts = 0;
+        while ((video.readyState < 2 || video.videoWidth === 0 || video.videoHeight === 0) && attempts < 6) {
+          await new Promise(r => setTimeout(r, 50));
+          attempts++;
+        }
       }
 
-      // Wait up to 300ms if video stream is initializing
-      let attempts = 0;
-      while ((video.readyState < 2 || video.videoWidth === 0 || video.videoHeight === 0) && attempts < 6) {
-        await new Promise(r => setTimeout(r, 50));
-        attempts++;
-      }
-
-      const width = video.videoWidth || 640;
-      const height = video.videoHeight || 480;
+      const width = video?.videoWidth || 640;
+      const height = video?.videoHeight || 480;
 
       // Always create a fresh canvas instance and clear pixels
       const canvas = document.createElement('canvas');
@@ -71,7 +72,7 @@ export function useCamera(videoRef: React.RefObject<HTMLVideoElement | null>) {
 
       ctx.clearRect(0, 0, width, height);
 
-      if (video.readyState >= 2 && video.videoWidth > 0) {
+      if (video && video.readyState >= 2 && video.videoWidth > 0) {
         ctx.drawImage(video, 0, 0, width, height);
       } else {
         // Dynamic pattern for fallback canvas so every frame timestamp differs
@@ -83,7 +84,7 @@ export function useCamera(videoRef: React.RefObject<HTMLVideoElement | null>) {
       }
 
       canvas.toBlob(blob => {
-        console.log('[Camera Capture] Fresh JPEG blob size:', blob?.size, 'bytes', 'ReadyState:', video.readyState);
+        console.log('[Camera Capture] Fresh JPEG blob size:', blob?.size, 'bytes', 'ReadyState:', video?.readyState);
         resolve(blob);
       }, 'image/jpeg', 0.85);
     });

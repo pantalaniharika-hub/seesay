@@ -14,8 +14,8 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
   (req as any).user = {
     id: 1,
     google_id: 'google-user-1',
-    name: 'SeeSay User',
-    email: 'user@seesay.app',
+    name: 'Pantala Niharika',
+    email: 'pantalaniharika@gmail.com',
     avatar_url: 'https://lh3.googleusercontent.com/a/default-user=s96-c',
   };
   return next();

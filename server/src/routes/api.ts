@@ -463,9 +463,10 @@ router.post('/describe', requireAuth, upload.single('image'), async (req: Reques
       answer = getDynamicVisionResponse(imageBase64, 'describe');
     }
 
+    recordQuery(req, 'describe', null, answer);
     try {
       const db = await getDb();
-      await db.createQuery({ session_id: parseInt(sessionId), type: 'describe', question: null, answer });
+      await db.createQuery({ session_id: parseInt(sessionId) || Date.now(), type: 'describe', question: null, answer });
     } catch (dbErr) {
       console.warn('[DB] Failed to log describe query:', dbErr);
     }
@@ -515,13 +516,12 @@ router.post('/ask', requireAuth, upload.single('image'), async (req: Request, re
       answer = getDynamicVisionResponse(imageBase64, 'ask', question);
     }
 
-    if (sessionId) {
-      try {
-        const db = await getDb();
-        await db.createQuery({ session_id: parseInt(sessionId), type: 'ask', question, answer });
-      } catch (dbErr) {
-        console.warn('[DB] Failed to log ask query:', dbErr);
-      }
+    recordQuery(req, 'ask', question, answer);
+    try {
+      const db = await getDb();
+      await db.createQuery({ session_id: parseInt(sessionId) || Date.now(), type: 'ask', question, answer });
+    } catch (dbErr) {
+      console.warn('[DB] Failed to log ask query:', dbErr);
     }
 
     res.json({ answer });
@@ -557,13 +557,12 @@ router.post('/read-text', requireAuth, upload.single('image'), async (req: Reque
       answer = getDynamicVisionResponse(imageBase64, 'read_text');
     }
 
-    if (sessionId) {
-      try {
-        const db = await getDb();
-        await db.createQuery({ session_id: parseInt(sessionId), type: 'describe', question: 'Read text', answer });
-      } catch (e) {
-        console.warn('Failed to log read-text query:', e);
-      }
+    recordQuery(req, 'read_text', null, answer);
+    try {
+      const db = await getDb();
+      await db.createQuery({ session_id: parseInt(sessionId) || Date.now(), type: 'describe', question: 'Read text', answer });
+    } catch (e) {
+      console.warn('Failed to log read-text query:', e);
     }
 
     res.json({ answer });
@@ -601,13 +600,12 @@ router.post('/color', requireAuth, upload.single('image'), async (req: Request, 
       answer = 'The primary colors visible in the frame are balanced under room lighting.';
     }
 
-    if (sessionId) {
-      try {
-        const db = await getDb();
-        await db.createQuery({ session_id: parseInt(sessionId), type: 'ask', question: 'What color is this?', answer });
-      } catch (e) {
-        console.warn('Failed to log color query:', e);
-      }
+    recordQuery(req, 'color', 'What color is this?', answer);
+    try {
+      const db = await getDb();
+      await db.createQuery({ session_id: parseInt(sessionId) || Date.now(), type: 'ask', question: 'What color is this?', answer });
+    } catch (e) {
+      console.warn('Failed to log color query:', e);
     }
 
     res.json({ answer });

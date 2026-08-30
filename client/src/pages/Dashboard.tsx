@@ -326,23 +326,67 @@ export function Dashboard() {
           </span>
         </div>
 
-        {/* User info */}
+        {/* User profile */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          {user?.avatar_url && (
-            <img
-              src={user.avatar_url}
-              alt={`${displayName}'s profile picture`}
-              style={{ width: 36, height: 36, borderRadius: '50%', border: '2px solid var(--border-strong)' }}
-            />
-          )}
-          <span style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }} id="user-name-display">
-            {displayName}
-          </span>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              padding: '4px 12px 4px 6px',
+              borderRadius: 24,
+              background: 'var(--surface-raised, rgba(255,255,255,0.06))',
+              border: '1px solid var(--border)',
+            }}
+          >
+            {user?.avatar_url ? (
+              <img
+                src={user.avatar_url}
+                alt={`${displayName}'s avatar`}
+                style={{ width: 32, height: 32, borderRadius: '50%', border: '1.5px solid var(--accent)' }}
+              />
+            ) : (
+              <div
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: '50%',
+                  background: 'var(--accent)',
+                  color: '#000',
+                  fontWeight: 700,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '0.9rem',
+                }}
+              >
+                {displayName.charAt(0).toUpperCase()}
+              </div>
+            )}
+            <div style={{ display: 'flex', flexDirection: 'column', textAlign: 'left', lineHeight: 1.2 }}>
+              <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text)' }} id="user-name-display">
+                {displayName}
+              </span>
+              <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                {user?.email || 'pantalaniharika@gmail.com'}
+              </span>
+            </div>
+          </div>
+
+          <a
+            href="/auth/google"
+            className="btn btn-secondary"
+            style={{ padding: '6px 12px', minHeight: 32, fontSize: '0.78rem', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 6 }}
+            title="Switch or sign in with Google Account"
+          >
+            <span>Google</span>
+          </a>
+
           <button
             id="sign-out-btn"
             className="btn btn-ghost"
             onClick={handleSignOut}
-            style={{ padding: '8px 16px', minHeight: 36, fontSize: '0.85rem' }}
+            style={{ padding: '6px 12px', minHeight: 32, fontSize: '0.78rem' }}
             aria-label="Sign out"
           >
             Sign out
