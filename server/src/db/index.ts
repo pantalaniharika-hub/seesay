@@ -129,10 +129,12 @@ async function getSqliteDb() {
   if (sqliteDbInstance) return sqliteDbInstance;
   const initSqlJs = (await import('sql.js')).default;
   // Explicitly load the WASM binary — required for serverless environments (Vercel)
-  let wasmBinary: Buffer | undefined;
+  let wasmBinary: ArrayBuffer | undefined;
   try {
     const wasmPath = require.resolve('sql.js/dist/sql-wasm.wasm');
-    wasmBinary = fs.readFileSync(wasmPath);
+    const buf = fs.readFileSync(wasmPath);
+    // Convert Node Buffer → ArrayBuffer (sql.js requires ArrayBuffer not Buffer)
+    wasmBinary = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
   } catch {
     // fallback: let sql.js try to locate it itself
   }
