@@ -123,7 +123,10 @@ async function createPgAdapter(): Promise<DbAdapter> {
 // ─── sql.js Adapter (pure-JS SQLite, no native build needed) ─────────────────
 // sql.js stores data in memory; we persist to a file on writes.
 let sqliteDbInstance: any = null;
-const DB_PATH = path.resolve(__dirname, '../../../seesay.db');
+// /tmp is the only writable directory on Vercel serverless; use project root locally
+const DB_PATH = process.env.NODE_ENV === 'production'
+  ? '/tmp/seesay.db'
+  : path.resolve(__dirname, '../../../seesay.db');
 
 async function getSqliteDb() {
   if (sqliteDbInstance) return sqliteDbInstance;
