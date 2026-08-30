@@ -1,16 +1,17 @@
 {
   "version": 2,
   "buildCommand": "npm install --prefix client && npm run build --prefix client && npm install --prefix server",
-  "builds": [
-    {
-      "src": "api/index.ts",
-      "use": "@vercel/node",
-      "config": {
-        "includeFiles": ["server/src/**", "client/dist/**", "node_modules/sql.js/dist/**"]
-      }
+  "outputDirectory": "client/dist",
+  "functions": {
+    "api/index.ts": {
+      "maxDuration": 30,
+      "includeFiles": "server/src/**,node_modules/sql.js/dist/**"
     }
-  ],
+  },
   "routes": [
-    { "src": "/(.*)", "dest": "/api/index" }
+    { "src": "/api/(.*)", "dest": "/api/index" },
+    { "src": "/auth/(.*)", "dest": "/api/index" },
+    { "handle": "filesystem" },
+    { "src": "/(.*)", "dest": "/index.html" }
   ]
 }
