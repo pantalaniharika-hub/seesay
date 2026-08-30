@@ -27,12 +27,26 @@ export function Dashboard() {
   });
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [sessionId, setSessionId] = useState<number | null>(null);
-  const [history, setHistory] = useState<HistoryRow[]>([]);
+  const [history, setHistory] = useState<HistoryRow[]>(() => {
+    try {
+      const saved = localStorage.getItem('seesay_history');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return [];
+  });
   const [historyPage, setHistoryPage] = useState(1);
   const [historyTotal, setHistoryTotal] = useState(0);
   const [historyTotalPages, setHistoryTotalPages] = useState(1);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [customName, setCustomName] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem('seesay_display_name');
+      if (saved) return saved;
+    } catch {}
+    return '';
+  });
 
   const updateDebugPreview = (frame: Blob | null) => {
     if (frame) {
@@ -43,12 +57,29 @@ export function Dashboard() {
     }
   };
 
+  const appendHistoryRow = useCallback((type: string, question: string | null, answer: string) => {
+    const newRow: HistoryRow = {
+      query_id: Date.now() + Math.floor(Math.random() * 1000),
+      type,
+      question,
+      answer,
+      created_at: new Date().toISOString(),
+      session_started_at: new Date().toISOString(),
+    };
+    setHistory(prev => {
+      const updated = [newRow, ...prev.filter(r => r.query_id !== newRow.query_id)];
+      try { localStorage.setItem('seesay_history', JSON.stringify(updated)); } catch {}
+      return updated;
+    });
+    setHistoryTotal(t => t + 1);
+  }, []);
+
   const incrementStats = useCallback((isQuestion = false) => {
     setStats(prev => {
       const next = {
-        scansToday: prev.scansToday + 1,
-        questionsThisWeek: prev.questionsThisWeek + (isQuestion ? 1 : 0),
-        totalSessions: Math.max(1, prev.totalSessions),
+        scansToday: (prev?.scansToday ?? 0) + 1,
+        questionsThisWeek: (prev?.questionsThisWeek ?? 0) + (isQuestion ? 1 : 0),
+        totalSessions: Math.max(1, prev?.totalSessions ?? 1),
       };
       try { localStorage.setItem('seesay_stats', JSON.stringify(next)); } catch {}
       return next;
@@ -62,12 +93,19 @@ export function Dashboard() {
     api.createSession()
       .then(r => setSessionId(r.sessionId))
       .catch(console.error);
-    // Load stats from server if non-zero
+    // Load stats from server and merge with local
     api.stats()
       .then(s => {
-        if (s && (s.scansToday > 0 || s.questionsThisWeek > 0)) {
-          setStats(s);
-          try { localStorage.setItem('seesay_stats', JSON.stringify(s)); } catch {}
+        if (s) {
+          setStats(prev => {
+            const next = {
+              scansToday: Math.max(prev?.scansToday || 0, s.scansToday || 0),
+              questionsThisWeek: Math.max(prev?.questionsThisWeek || 0, s.questionsThisWeek || 0),
+              totalSessions: Math.max(prev?.totalSessions || 1, s.totalSessions || 1),
+            };
+            try { localStorage.setItem('seesay_stats', JSON.stringify(next)); } catch {}
+            return next;
+          });
         }
       })
       .catch(console.error);
@@ -80,9 +118,14 @@ export function Dashboard() {
     setHistoryLoading(true);
     try {
       const r = await api.history(page);
-      setHistory(r.rows);
+      setHistory(prev => {
+        const seen = new Set(r.rows.map(x => x.query_id));
+        const merged = [...r.rows, ...prev.filter(x => !seen.has(x.query_id))];
+        try { localStorage.setItem('seesay_history', JSON.stringify(merged)); } catch {}
+        return merged;
+      });
       setHistoryPage(r.page);
-      setHistoryTotal(r.total);
+      setHistoryTotal(prevTotal => Math.max(prevTotal, r.total));
       setHistoryTotalPages(r.totalPages);
     } catch {}
     setHistoryLoading(false);
@@ -106,6 +149,7 @@ export function Dashboard() {
         answer,
         timestamp: new Date(),
       }]);
+      appendHistoryRow('describe', null, answer);
       setStatus('speaking');
       speak(answer, () => setStatus('ready'));
       incrementStats(false);
@@ -113,7 +157,7 @@ export function Dashboard() {
       setError(err instanceof Error ? err.message : 'Failed to describe scene');
       setStatus('ready');
     }
-  }, [status, sessionId, captureFrame, speak, stopSpeaking, incrementStats]);
+  }, [status, sessionId, captureFrame, speak, stopSpeaking, incrementStats, appendHistoryRow]);
 
   // ─── Read Text ────────────────────────────────────────────────────────────
   const handleReadText = useCallback(async () => {
@@ -133,6 +177,7 @@ export function Dashboard() {
         answer,
         timestamp: new Date(),
       }]);
+      appendHistoryRow('read_text', null, answer);
       setStatus('speaking');
       speak(answer, () => setStatus('ready'));
       incrementStats(false);
@@ -140,7 +185,7 @@ export function Dashboard() {
       setError(err instanceof Error ? err.message : 'Failed to read text');
       setStatus('ready');
     }
-  }, [status, sessionId, captureFrame, speak, stopSpeaking, incrementStats]);
+  }, [status, sessionId, captureFrame, speak, stopSpeaking, incrementStats, appendHistoryRow]);
 
   // ─── Ask ──────────────────────────────────────────────────────────────────
   const executeAsk = useCallback(async (userQuery: string) => {
@@ -157,6 +202,7 @@ export function Dashboard() {
         answer,
         timestamp: new Date(),
       }]);
+      appendHistoryRow('ask', userQuery, answer);
       setStatus('speaking');
       speak(answer, () => setStatus('ready'));
       incrementStats(true);
@@ -164,7 +210,7 @@ export function Dashboard() {
       setError(err instanceof Error ? err.message : 'Failed to answer question');
       setStatus('ready');
     }
-  }, [sessionId, captureFrame, speak, incrementStats]);
+  }, [sessionId, captureFrame, speak, incrementStats, appendHistoryRow]);
 
   const handleAsk = useCallback(() => {
     if (status !== 'ready') return;
@@ -208,6 +254,7 @@ export function Dashboard() {
         answer,
         timestamp: new Date(),
       }]);
+      appendHistoryRow('color', 'What color is this?', answer);
       setStatus('speaking');
       speak(answer, () => setStatus('ready'));
       incrementStats(true);
@@ -215,7 +262,7 @@ export function Dashboard() {
       setError(err instanceof Error ? err.message : 'Failed to identify color');
       setStatus('ready');
     }
-  }, [status, sessionId, captureFrame, speak, stopSpeaking, incrementStats]);
+  }, [status, sessionId, captureFrame, speak, stopSpeaking, incrementStats, appendHistoryRow]);
 
   // ─── Sign out ─────────────────────────────────────────────────────────────
   const handleSignOut = useCallback(async () => {
@@ -223,7 +270,21 @@ export function Dashboard() {
     window.location.href = '/';
   }, []);
 
-  const firstName = user?.name?.split(' ')[0] ?? 'there';
+  const [historyFilter, setHistoryFilter] = useState<'all' | 'describe' | 'read_text' | 'ask' | 'color'>('all');
+  const [historySearch, setHistorySearch] = useState('');
+
+  const displayName = customName || (user?.name && user.name !== 'SeeSay User' ? user.name : 'Pantala Niharika');
+  const firstName = displayName.split(' ')[0] || 'Pantala';
+
+  const filteredHistory = history.filter(row => {
+    if (historyFilter !== 'all' && row.type !== historyFilter) return false;
+    if (historySearch.trim()) {
+      const q = historySearch.toLowerCase();
+      return (row.question && row.question.toLowerCase().includes(q)) ||
+             (row.answer && row.answer.toLowerCase().includes(q));
+    }
+    return true;
+  });
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', flexDirection: 'column' }}>
@@ -270,12 +331,12 @@ export function Dashboard() {
           {user?.avatar_url && (
             <img
               src={user.avatar_url}
-              alt={`${user.name}'s profile picture`}
+              alt={`${displayName}'s profile picture`}
               style={{ width: 36, height: 36, borderRadius: '50%', border: '2px solid var(--border-strong)' }}
             />
           )}
-          <span style={{ fontSize: '0.9rem', color: 'var(--text-muted)', display: 'none' }} id="user-name-display">
-            {user?.name}
+          <span style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }} id="user-name-display">
+            {displayName}
           </span>
           <button
             id="sign-out-btn"
@@ -293,13 +354,34 @@ export function Dashboard() {
         {/* ─── Greeting ────────────────────────────────────────────────── */}
         <div style={{ marginBottom: 32 }}>
           <h1 style={{ fontSize: 'clamp(1.6rem, 3vw, 2rem)', fontWeight: 700, marginBottom: 4 }}>
-            Welcome back, <span style={{ color: 'var(--accent)' }}>{firstName}</span>
+            Welcome back, <span style={{ color: 'var(--accent)' }}>{displayName}</span>
+            <button
+              onClick={() => {
+                const newName = window.prompt("Enter your Google / preferred name to display:", displayName);
+                if (newName && newName.trim()) {
+                  setCustomName(newName.trim());
+                  try { localStorage.setItem('seesay_display_name', newName.trim()); } catch {}
+                }
+              }}
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                fontSize: '1rem',
+                marginLeft: 8,
+                opacity: 0.6,
+              }}
+              title="Click to edit name"
+              aria-label="Edit display name"
+            >
+              ✏️
+            </button>
           </h1>
           <p style={{ color: 'var(--text-muted)' }}>
             {cameraError
               ? '⚠️ Camera unavailable — check browser permissions.'
               : cameraReady
-              ? 'Camera is active. Tap a button below to explore your surroundings.'
+              ? 'Camera is active (Back / World). Tap a feature below.'
               : 'Activating camera…'}
           </p>
         </div>
@@ -510,8 +592,8 @@ export function Dashboard() {
         {/* ─── History ─────────────────────────────────────────────────── */}
         <section aria-labelledby="history-heading">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-            <h2 id="history-heading" style={{ fontSize: '1.1rem', fontWeight: 700 }}>
-              History
+            <h2 id="history-heading" style={{ fontSize: '1.25rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: 8 }}>
+              📖 History & Query Logs
             </h2>
             <button
               className="btn btn-ghost"
@@ -523,24 +605,62 @@ export function Dashboard() {
             </button>
           </div>
 
+          {/* Search bar */}
+          <div style={{ marginBottom: 12 }}>
+            <input
+              type="text"
+              className="input"
+              placeholder="Search history by keyword..."
+              value={historySearch}
+              onChange={e => setHistorySearch(e.target.value)}
+              style={{ width: '100%', padding: '10px 14px', borderRadius: 10, background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)' }}
+            />
+          </div>
+
+          {/* Filter Tabs */}
+          <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 8, marginBottom: 16 }}>
+            {[
+              { label: 'All', value: 'all' },
+              { label: 'Describe', value: 'describe' },
+              { label: 'Read Text', value: 'read_text' },
+              { label: 'Ask', value: 'ask' },
+              { label: 'Color', value: 'color' },
+            ].map(tab => (
+              <button
+                key={tab.value}
+                className={`btn ${historyFilter === tab.value ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => setHistoryFilter(tab.value as any)}
+                style={{
+                  padding: '6px 14px',
+                  fontSize: '0.85rem',
+                  borderRadius: 8,
+                  background: historyFilter === tab.value ? 'var(--accent)' : 'transparent',
+                  color: historyFilter === tab.value ? '#000' : 'var(--text-muted)',
+                  border: historyFilter === tab.value ? 'none' : '1px solid var(--border)',
+                }}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
           {historyLoading ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {[1,2,3].map(i => (
                 <div key={i} className="skeleton" style={{ height: 72, borderRadius: 'var(--radius)' }} />
               ))}
             </div>
-          ) : history.length === 0 ? (
+          ) : filteredHistory.length === 0 ? (
             <div
               className="card"
-              style={{ textAlign: 'center', padding: '48px 24px', color: 'var(--text-muted)' }}
+              style={{ textAlign: 'center', padding: '40px 24px', color: 'var(--text-muted)' }}
             >
-              <p style={{ fontSize: '2rem', marginBottom: 12 }} aria-hidden="true">📖</p>
-              <p>No history yet. Start describing your surroundings!</p>
+              <p style={{ margin: 0, fontSize: '0.95rem' }}>No history records found for this filter.</p>
             </div>
           ) : (
             <>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {history.map(row => (
+                {filteredHistory.map(row => (
                   <div
                     key={row.query_id}
                     className="card"

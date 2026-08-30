@@ -27,8 +27,8 @@ function ensureUser(req: Request): User {
     req.user = (req.session as any)?.passport?.user || {
       id: 1,
       google_id: 'google-user-1',
-      name: 'SeeSay User',
-      email: 'user@seesay.app',
+      name: 'Pantala Niharika',
+      email: 'pantalaniharika@gmail.com',
       avatar_url: 'https://lh3.googleusercontent.com/a/default-user=s96-c',
     };
   }
@@ -81,29 +81,72 @@ router.get('/stats/chart', (req: Request, res: Response) => {
   res.json({ chart });
 });
 
+interface SessionQuery {
+  query_id: number;
+  type: string;
+  question: string | null;
+  answer: string;
+  created_at: string;
+  session_started_at: string;
+}
+
+const globalQueryCache: SessionQuery[] = [];
+
+function recordQuery(req: Request, type: string, question: string | null, answer: string): SessionQuery {
+  const item: SessionQuery = {
+    query_id: Date.now() + Math.floor(Math.random() * 1000),
+    type,
+    question: question || null,
+    answer,
+    created_at: new Date().toISOString(),
+    session_started_at: new Date().toISOString(),
+  };
+
+  globalQueryCache.unshift(item);
+  if (globalQueryCache.length > 100) globalQueryCache.length = 100;
+
+  const sess = req.session as any;
+  if (sess) {
+    sess.history = sess.history || [];
+    sess.history.unshift(item);
+    if (sess.history.length > 50) sess.history.length = 50;
+  }
+
+  return item;
+}
+
 // ─── GET /api/stats ───────────────────────────────────────────────────────────
 router.get('/stats', async (req: Request, res: Response) => {
   const user = ensureUser(req);
-  const sessionQueries = (req.session as any)?.history || [];
-  const sessionScansToday = sessionQueries.filter((q: any) => new Date(q.created_at).toDateString() === new Date().toDateString()).length;
-  const sessionQuestionsThisWeek = sessionQueries.length;
+  const sessionQueries: SessionQuery[] = (req.session as any)?.history || [];
+  const allQueries = [...sessionQueries];
+  for (const q of globalQueryCache) {
+    if (!allQueries.some(x => x.query_id === q.query_id)) {
+      allQueries.push(q);
+    }
+  }
+
+  const todayStr = new Date().toDateString();
+  const scansTodayCount = allQueries.filter(q => new Date(q.created_at).toDateString() === todayStr).length;
+  const questionsThisWeekCount = allQueries.filter(q => q.type === 'ask').length;
+  const totalScansCount = allQueries.length;
 
   try {
     const db = await getDb();
-    const [scansToday, questionsThisWeek, totalSessions] = await Promise.all([
+    const [dbScansToday, dbQuestionsThisWeek, dbTotalSessions] = await Promise.all([
       db.getScansToday(user.id).catch(() => 0),
       db.getQuestionsThisWeek(user.id).catch(() => 0),
       db.getTotalSessions(user.id).catch(() => 1),
     ]);
     res.json({
-      scansToday: scansToday + sessionScansToday,
-      questionsThisWeek: questionsThisWeek + sessionQuestionsThisWeek,
-      totalSessions: Math.max(1, totalSessions),
+      scansToday: Math.max(dbScansToday, scansTodayCount, totalScansCount),
+      questionsThisWeek: Math.max(dbQuestionsThisWeek, questionsThisWeekCount),
+      totalSessions: Math.max(1, dbTotalSessions, allQueries.length > 0 ? 1 : 0),
     });
   } catch (err) {
     res.json({
-      scansToday: sessionScansToday,
-      questionsThisWeek: sessionQuestionsThisWeek,
+      scansToday: Math.max(scansTodayCount, totalScansCount),
+      questionsThisWeek: questionsThisWeekCount,
       totalSessions: 1,
     });
   }
@@ -114,21 +157,47 @@ router.get('/history', async (req: Request, res: Response) => {
   const user = ensureUser(req);
   const page = Math.max(1, parseInt(req.query.page as string) || 1);
   const limit = 10;
-  const sessionQueries = (req.session as any)?.history || [];
+  const offset = (page - 1) * limit;
+  const filterType = (req.query.type as string || 'all').toLowerCase();
+  const search = (req.query.search as string || '').toLowerCase().trim();
+
+  const sessionQueries: SessionQuery[] = (req.session as any)?.history || [];
+  let allQueries = [...sessionQueries];
+  for (const q of globalQueryCache) {
+    if (!allQueries.some(x => x.query_id === q.query_id)) {
+      allQueries.push(q);
+    }
+  }
 
   try {
     const db = await getDb();
-    const offset = (page - 1) * limit;
-    const [rows, total] = await Promise.all([
-      db.getHistory(user.id, limit, offset).catch(() => []),
-      db.getHistoryCount(user.id).catch(() => 0),
-    ]);
-    const mergedRows = rows.length > 0 ? rows : sessionQueries;
-    const mergedTotal = total > 0 ? total : sessionQueries.length;
-    res.json({ rows: mergedRows, total: mergedTotal, page, totalPages: Math.max(1, Math.ceil(mergedTotal / limit)) });
-  } catch (err) {
-    res.json({ rows: sessionQueries, total: sessionQueries.length, page: 1, totalPages: 1 });
+    const dbRows = await db.getHistory(user.id, 50, 0).catch(() => []);
+    for (const r of dbRows) {
+      if (!allQueries.some(x => x.query_id === r.query_id)) {
+        allQueries.push(r);
+      }
+    }
+  } catch {}
+
+  // Apply filter
+  if (filterType && filterType !== 'all') {
+    allQueries = allQueries.filter(q => q.type === filterType);
   }
+  if (search) {
+    allQueries = allQueries.filter(q =>
+      (q.question && q.question.toLowerCase().includes(search)) ||
+      (q.answer && q.answer.toLowerCase().includes(search))
+    );
+  }
+
+  const total = allQueries.length;
+  const rows = allQueries.slice(offset, offset + limit);
+  res.json({
+    rows,
+    total,
+    page,
+    totalPages: Math.max(1, Math.ceil(total / limit)),
+  });
 });
 
 // ─── POST /api/session ────────────────────────────────────────────────────────
