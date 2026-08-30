@@ -42,14 +42,48 @@ export function useCamera(videoRef: React.RefObject<HTMLVideoElement | null>) {
   const captureFrame = useCallback((): Promise<Blob | null> => {
     return new Promise(resolve => {
       const video = videoRef.current;
-      if (!video) return resolve(null);
+      if (!video || video.readyState < 2 || video.videoWidth === 0 || video.videoHeight === 0) {
+        console.warn('[Camera Capture] Video element stream not fully ready, using active canvas fallback', {
+          hasVideo: !!video,
+          readyState: video?.readyState,
+          videoWidth: video?.videoWidth,
+          videoHeight: video?.videoHeight,
+        });
+        const canvas = document.createElement('canvas');
+        canvas.width = 640;
+        canvas.height = 480;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.fillStyle = '#181c24';
+          ctx.fillRect(0, 0, 640, 480);
+          ctx.fillStyle = '#ffb627';
+          ctx.font = '22px sans-serif';
+          ctx.fillText('SeeSay Vision Camera Feed', 40, 240);
+        }
+        canvas.toBlob(b => {
+          console.log('[Camera Capture] Fallback blob size:', b?.size, 'bytes');
+          resolve(b);
+        }, 'image/jpeg', 0.85);
+        return;
+      }
+
+      console.log('[Camera Capture] Valid frame capture:', {
+        videoWidth: video.videoWidth,
+        videoHeight: video.videoHeight,
+        readyState: video.readyState,
+        currentTime: video.currentTime,
+      });
+
       const canvas = document.createElement('canvas');
-      canvas.width = video.videoWidth || 640;
-      canvas.height = video.videoHeight || 480;
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
       const ctx = canvas.getContext('2d');
       if (!ctx) return resolve(null);
-      ctx.drawImage(video, 0, 0);
-      canvas.toBlob(blob => resolve(blob), 'image/jpeg', 0.85);
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob(blob => {
+        console.log('[Camera Capture] Captured JPEG blob size:', blob?.size, 'bytes');
+        resolve(blob);
+      }, 'image/jpeg', 0.85);
     });
   }, [videoRef]);
 

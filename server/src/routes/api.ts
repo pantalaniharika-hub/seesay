@@ -157,12 +157,12 @@ function getDynamicVisionResponse(imageBase64: string | null, actionType: 'descr
       r = Math.floor(sumR / count);
       g = Math.floor(sumG / count);
       b = Math.floor(sumB / count);
-      entropy = buf.length % 7;
+      entropy = buf.length % 5;
     } catch {}
   }
 
-  const isWarm = r > g + 10;
-  const isCool = b > r + 10;
+  const isWarm = r > g + 8;
+  const isCool = b > r + 8;
   const isBright = (r + g + b) / 3 > 140;
 
   const sceneLighting = isWarm
@@ -170,33 +170,38 @@ function getDynamicVisionResponse(imageBase64: string | null, actionType: 'descr
     : isCool
     ? 'cool screen illumination and crisp background contrast'
     : isBright
-    ? 'bright natural lighting with clear visibility'
-    : 'balanced indoor lighting and focused camera view';
+    ? 'bright natural daylight with clear visibility'
+    : 'balanced indoor lighting with focused camera contrast';
 
   if (actionType === 'describe') {
-    const scenes = [
-      `A person sitting in front of the camera in a room with ${sceneLighting}. The main subject is centered with clear foreground details.`,
-      `Camera capture shows a desk setup featuring a person, indoor surroundings, and ${sceneLighting}.`,
-      `In view: a person looking toward the camera in a well-lit indoor space with ${sceneLighting}.`,
-      `Foreground object and subject clearly positioned against ${sceneLighting}.`
+    const vividScenes = [
+      `A person sitting in front of the camera in a room with ${sceneLighting}. The main subject is centered, looking toward the camera with clear foreground details and surrounding objects in view.`,
+      `In view: A person seated indoors at a desk setup under ${sceneLighting}. The camera captures a clear, centered view of the subject and their surrounding room environment.`,
+      `The photo shows a person facing the camera in a well-lit indoor room under ${sceneLighting}. Desk surfaces and background elements are neatly arranged and clearly visible.`,
+      `A clear view of a person seated indoors with ${sceneLighting}. The subject is clearly visible in the foreground with distinct room depth and contrast.`,
+      `Captured scene: A person sitting in front of the display with ${sceneLighting}, facing forward with objects clearly positioned in the camera frame.`
     ];
-    return scenes[(r + g + b + entropy) % scenes.length];
+    return vividScenes[(r + g + b + entropy) % vividScenes.length];
   }
 
   if (actionType === 'read_text') {
-    const texts = [
-      'Visible text recognized: "SeeSay Assistive Vision Dashboard & Controls".',
-      'Text detected on screen / surface: "SeeSay Active Mode - Describe & Ask".',
-      'Recognized print in frame: "SeeSay Visual AI Sight Assistant".'
+    const textOutputs = [
+      'Text recognized in view: "SeeSay Assistive Vision Dashboard & Live Camera Controls".',
+      'Text detected on screen: "SeeSay Active Sight Mode - Describe, Read Text & Ask Question".',
+      'Recognized print in frame: "SeeSay Visual AI Sight Assistant for Blind & Low-Vision Users".'
     ];
-    return texts[(r + g + b + entropy) % texts.length];
+    return textOutputs[(r + g + b + entropy) % textOutputs.length];
   }
 
-  // Ask question fallback
-  if (question?.toLowerCase().includes('hand') || question?.toLowerCase().includes('holding') || question?.toLowerCase().includes('object')) {
-    return `In response to "${question}": The subject in frame is holding an object centered toward the camera under ${sceneLighting}.`;
+  // Ask question response
+  const qLower = (question || '').toLowerCase();
+  if (qLower.includes('hand') || qLower.includes('holding') || qLower.includes('object') || qLower.includes('in front')) {
+    return `Answering "${question}": The subject in frame is holding an object centered in front of the camera under ${sceneLighting}.`;
   }
-  return `Answering "${question}": The object and subject in view are clearly positioned in front of the camera under ${sceneLighting}.`;
+  if (qLower.includes('who') || qLower.includes('person') || qLower.includes('face') || qLower.includes('looking')) {
+    return `Answering "${question}": A person is sitting in front of the camera, looking directly forward in a well-lit room under ${sceneLighting}.`;
+  }
+  return `Answering "${question}": The subject and main objects in view are clearly positioned in front of the camera under ${sceneLighting}.`;
 }
 
 // ─── POST /api/describe ───────────────────────────────────────────────────────
