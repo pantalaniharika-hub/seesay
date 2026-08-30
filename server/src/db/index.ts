@@ -128,7 +128,15 @@ const DB_PATH = path.resolve(__dirname, '../../../seesay.db');
 async function getSqliteDb() {
   if (sqliteDbInstance) return sqliteDbInstance;
   const initSqlJs = (await import('sql.js')).default;
-  const SQL = await initSqlJs();
+  // Explicitly load the WASM binary — required for serverless environments (Vercel)
+  let wasmBinary: Buffer | undefined;
+  try {
+    const wasmPath = require.resolve('sql.js/dist/sql-wasm.wasm');
+    wasmBinary = fs.readFileSync(wasmPath);
+  } catch {
+    // fallback: let sql.js try to locate it itself
+  }
+  const SQL = await initSqlJs(wasmBinary ? { wasmBinary } : {});
   if (fs.existsSync(DB_PATH)) {
     const fileBuffer = fs.readFileSync(DB_PATH);
     sqliteDbInstance = new SQL.Database(fileBuffer);
