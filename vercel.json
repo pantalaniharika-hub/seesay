@@ -8,9 +8,10 @@
       "includeFiles": "server/src/**,node_modules/sql.js/dist/**"
     }
   },
-  "rewrites": [
-    { "source": "/api/:path*", "destination": "/api/index" },
-    { "source": "/auth/:path*", "destination": "/api/index" },
-    { "source": "/(.*)", "destination": "/$1" }
+  "routes": [
+    { "src": "/api/(.*)", "dest": "/api/index" },
+    { "src": "/auth/(.*)", "dest": "/api/index" },
+    { "handle": "filesystem" },
+    { "src": "/(.*)", "dest": "/index.html" }
   ]
 }
