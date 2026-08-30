@@ -31,3 +31,4 @@ Thumbs.db
 
 # Render
 .render-buildinfo.json
+.vercel

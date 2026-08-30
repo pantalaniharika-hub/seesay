@@ -123,24 +123,63 @@ async function createPgAdapter(): Promise<DbAdapter> {
 // ─── sql.js Adapter (pure-JS SQLite, no native build needed) ─────────────────
 // sql.js stores data in memory; we persist to a file on writes.
 let sqliteDbInstance: any = null;
-const DB_PATH = path.resolve(__dirname, '../../../seesay.db');
+const DB_PATH = process.env.VERCEL
+  ? '/tmp/seesay.db'
+  : path.resolve(__dirname, '../../../seesay.db');
+
+const SCHEMA = `
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  google_id TEXT UNIQUE NOT NULL,
+  name TEXT NOT NULL,
+  email TEXT,
+  avatar_url TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS sessions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  started_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS queries (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id INTEGER NOT NULL REFERENCES sessions(id),
+  type TEXT NOT NULL CHECK(type IN ('describe','ask','read_text')),
+  question TEXT,
+  answer TEXT NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+`;
 
 async function getSqliteDb() {
   if (sqliteDbInstance) return sqliteDbInstance;
   const initSqlJs = (await import('sql.js')).default;
   const SQL = await initSqlJs();
   if (fs.existsSync(DB_PATH)) {
-    const fileBuffer = fs.readFileSync(DB_PATH);
-    sqliteDbInstance = new SQL.Database(fileBuffer);
+    try {
+      const fileBuffer = fs.readFileSync(DB_PATH);
+      sqliteDbInstance = new SQL.Database(fileBuffer);
+    } catch {
+      sqliteDbInstance = new SQL.Database();
+    }
   } else {
     sqliteDbInstance = new SQL.Database();
+  }
+  try {
+    sqliteDbInstance.run(SCHEMA);
+  } catch (e) {
+    console.warn('[DB] Schema init note:', e);
   }
   return sqliteDbInstance;
 }
 
 function persistDb(db: any) {
-  const data = db.export();
-  fs.writeFileSync(DB_PATH, Buffer.from(data));
+  try {
+    const data = db.export();
+    fs.writeFileSync(DB_PATH, Buffer.from(data));
+  } catch (e) {
+    console.warn('[DB] Persist warning:', e);
+  }
 }
 
 function sqliteQuery(db: any, sql: string, params: any[] = []): any[] {
