@@ -230,7 +230,7 @@ async function callGemini(imageBase64: string | null, mediaType: string, promptT
   const key = customApiKey || process.env.GEMINI_API_KEY;
   if (!key) return null;
 
-  const models = ['gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-2.5-flash', 'gemini-flash-latest'];
+  const models = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-flash-latest'];
   for (const m of models) {
     try {
       const parts: any[] = [{ text: promptText }];
@@ -617,11 +617,21 @@ router.post('/color', requireAuth, upload.single('image'), async (req: Request, 
 
 // ─── POST /api/logout ─────────────────────────────────────────────────────────
 router.post('/logout', (req: Request, res: Response) => {
-  req.logout(() => {
-    req.session.destroy(() => {
-      res.json({ ok: true });
-    });
-  });
+  try {
+    if (typeof (req as any).logout === 'function') {
+      (req as any).logout(() => {});
+    }
+  } catch {}
+  try {
+    if (req.session) {
+      if (typeof (req.session as any).destroy === 'function') {
+        (req.session as any).destroy(() => {});
+      } else {
+        req.session = null as any;
+      }
+    }
+  } catch {}
+  res.json({ ok: true });
 });
 
 // ─── Catch-all for unhandled /api/* routes ────────────────────────────────────
